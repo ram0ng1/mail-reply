@@ -18,6 +18,9 @@ app.initializers.add('ramon-mail-reply', () => {
       fallback: 'via email',
     });
 
+    // Priority 95 coloca o badge logo após o username (core usa 100
+    // pra username + 90 pra cardLink). Antes era 50 → ficava ao lado
+    // do timestamp, longe do nome.
     items.add(
       'mailReplyBadge',
       m(
@@ -25,7 +28,7 @@ app.initializers.add('ramon-mail-reply', () => {
         { title: label, 'aria-label': label },
         [m('i.icon.fas.fa-envelope', { 'aria-hidden': 'true' }), m('span.MailReplyBadge-text', label)],
       ),
-      50,
+      95,
     );
   });
 });

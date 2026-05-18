@@ -21,6 +21,9 @@
         "flarum/core": "^2.0.0",
         "willdurand/email-reply-parser": "^2.9 || ^3.0"
     },
+    "suggest": {
+        "webklex/php-imap": "Required only for IMAP polling (mail-reply:fetch); not needed when using a webhook provider like Mailgun or Postmark."
+    },
     "autoload": {
         "psr-4": {
             "Ramon\\MailReply\\": "src/"
