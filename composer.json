@@ -1,6 +1,5 @@
 {
     "name": "ramon/mail-reply",
-    "version": "0.2.0-beta",
     "description": "Reply-by-email for Flarum: unique per-user/per-discussion Reply-To addresses plus inbound email processing (parse, strip quotes/signatures, post reply).",
     "keywords": [
         "flarum",
