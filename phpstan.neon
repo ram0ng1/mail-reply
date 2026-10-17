@@ -1,0 +1,16 @@
+includes:
+    # Findings frozen here are Flarum/Eloquent magic (dynamic model
+    # properties, relation statics) that PHPStan cannot see without the
+    # flarum/phpstan stub. NEW code is still checked at level 5.
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+    paths:
+        - src
+        - extend.php
+    # CI resolves flarum/core via `composer update`, so a baselined magic-type
+    # error may not reproduce there. Don't fail when a frozen entry goes unused.
+    reportUnmatchedIgnoredErrors: false
+    # Flarum core is reflected directly from vendor/ (no flarum/phpstan stub).
+    treatPhpDocTypesAsCertain: false

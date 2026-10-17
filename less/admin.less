@@ -1,445 +1,834 @@
-.MailReplyAdmin {
-  // ── Form controls ────────────────────────────────────────────────────────
-  .FormControl {
-    background: var(--body-bg, #fff);
-    border: 1px solid var(--control-bg, #d8d8dc);
-    border-radius: 8px;
-    padding: 9px 13px;
-    width: 100%;
-    font-size: 13.5px;
-    transition: border-color 0.15s, box-shadow 0.15s;
+.MailReplyAdmin-settings {
+  --mr-line: var(--control-bg);
+  --mr-ok: #2f9e5a;
+  --mr-warn: #d48a12;
+  --mr-bad: var(--error-color, #d83e3e);
+  --mr-off: var(--muted-color);
+  --mr-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-    &::placeholder {
-      color: var(--muted-color, #9ca3af);
-    }
-
-    &:hover:not(:focus) {
-      border-color: var(--control-bg, #c4c4ca);
-    }
-
-    &:focus {
-      border-color: var(--primary-color, #2e7d32);
-      box-shadow: 0 0 0 3px fade(#2e7d32, 18%);
-      outline: none;
-    }
+  code {
+    font-family: var(--mr-mono);
+    font-size: 0.92em;
+    background: var(--code-bg, var(--control-bg));
+    color: var(--code-color, inherit);
+    padding: 1px 6px;
+    border-radius: 4px;
+    word-break: break-word;
   }
 
-  select.FormControl {
-    appearance: none;
-    background-image: linear-gradient(45deg, transparent 50%, #888 50%),
-      linear-gradient(135deg, #888 50%, transparent 50%);
-    background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
-    background-size: 6px 6px;
-    background-repeat: no-repeat;
-    padding-right: 32px;
-    cursor: pointer;
+  .helpText {
+    color: var(--muted-color);
   }
+}
 
-  // ── Button rhythm ────────────────────────────────────────────────────────
-  .Button {
-    --mr-btn-radius: 8px;
-    padding: 8px 14px;
-    border-radius: var(--mr-btn-radius);
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 1.2;
-    border: 1px solid transparent;
-    background: var(--control-bg, #f2f2f5);
-    color: var(--text-color, #1f2937);
-    transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+.mr-tint(@color, @amount) {
+  background: var(--control-bg-light, var(--control-bg));
+  background: color-mix(in srgb, @color @amount, var(--body-bg));
+}
 
-    &:hover:not(:disabled) {
-      background: rgba(0, 0, 0, 0.06);
-    }
+.MailReplyAdmin-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 10px 0;
+  background: var(--body-bg);
+}
 
-    i { margin-right: 6px; opacity: 0.85; }
+.MailReplyAdmin-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
 
-    &--primary {
-      background: var(--primary-color, #2e7d32);
-      color: #fff;
-      &:hover:not(:disabled) { background: darken(#2e7d32, 6%); }
-    }
+.MailReplyAdmin-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--control-bg);
+  border-radius: 999px;
+  background: var(--body-bg);
+  color: var(--muted-color);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 
-    &--link {
-      background: transparent;
-      color: var(--primary-color, #2e7d32);
-      padding: 4px 6px;
-      &:hover:not(:disabled) { background: transparent; text-decoration: underline; }
-    }
-
-    &:disabled { opacity: 0.55; cursor: not-allowed; }
-  }
-
-  &-body {
-    padding-top: 0;
-    padding-bottom: 40px;
-  }
-
-  // ── Section (h2 + helpText + cards) ──────────────────────────────────────
-  &-section {
-    max-width: 1040px;
-    margin: 0 auto;
-    padding: 28px 24px 56px;
-  }
-
-  &-section-header {
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--control-bg, #e6e6e9);
-
-    h2 {
-      margin: 0 0 6px;
-      font-size: 20px;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-      color: var(--text-color, #1f2937);
-    }
-
-    p.helpText {
-      margin: 0;
-      color: var(--muted-color, #6b7280);
-      font-size: 13.5px;
-      line-height: 1.5;
-    }
-  }
-
-  // ── Card ─────────────────────────────────────────────────────────────────
-  &-card {
-    background: var(--body-bg, #fff);
-    border: 1px solid var(--control-bg, #e6e6e9);
-    border-radius: 12px;
-    padding: 18px 20px 20px;
-    margin-bottom: 16px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-  }
-
-  &-card-header {
-    margin-bottom: 14px;
-    cursor: default;
-
-    h3 {
-      margin: 0 0 4px;
-      font-size: 15px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-    }
-
-    p.helpText {
-      margin: 0;
-      color: var(--muted-color, #6b7280);
-      font-size: 13px;
-    }
-  }
-
-  // ── Toggle list (rows + switches) ────────────────────────────────────────
-  &-toggleList {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  &-toggleRow {
-    padding: 8px 12px;
-    border-radius: 8px;
-
-    &:hover {
-      background: rgba(0, 0, 0, 0.02);
-    }
-  }
-
-  // ── Field grid (2 cols on wide, 1 col on narrow) ─────────────────────────
-  &-fieldGrid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px 20px;
-
-    @media (max-width: 720px) {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  // ── Sticky save bar ──────────────────────────────────────────────────────
-  &-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 14px 20px;
-    background: var(--body-bg, #fff);
-    border: 1px solid var(--control-bg, #e6e6e9);
-    border-radius: 12px;
-    box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.03);
-    margin-top: 8px;
-
-    &--sticky {
-      position: sticky;
-      bottom: 16px;
-      z-index: 5;
-    }
-  }
-
-  // ── Mode status callout ─────────────────────────────────────────────────
-  &-modeStatus {
-    margin-top: 12px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 13px;
-    line-height: 1.4;
-    border-left: 4px solid;
-
-    &[data-mode='imap'] {
-      background: rgba(46, 125, 50, 0.08);
-      color: #1b5e20;
-      border-left-color: #1b5e20;
-    }
-
-    &[data-mode='webhook'] {
-      background: rgba(13, 71, 161, 0.08);
-      color: #0d47a1;
-      border-left-color: #0d47a1;
-    }
-
-    &[data-mode='disabled'] {
-      background: rgba(198, 40, 40, 0.08);
-      color: #b71c1c;
-      border-left-color: #b71c1c;
-    }
-  }
-
-  // ── Mailbox hint (key/value visual) ──────────────────────────────────────
-  &-hint {
-    margin-top: 12px;
-    padding: 10px 12px;
-    background: var(--control-bg, rgba(0, 0, 0, 0.04));
-    border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  &-hint-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    font-size: 13px;
-
-    strong {
-      font-weight: 600;
-    }
-
-    code {
-      flex: 0 1 auto;
-      padding: 2px 8px;
-      background: var(--body-bg, #fff);
-      border: 1px solid var(--control-bg, rgba(0, 0, 0, 0.1));
-      border-radius: 4px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 12.5px;
-      word-break: break-all;
-    }
-  }
-
-  &-hint-pending {
-    color: var(--muted-color, #888);
-    font-style: italic;
+  > .icon {
     font-size: 12px;
   }
 
-  // ── Key/value rows (URL+header em providers block) ──────────────────────
-  &-kv {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 16px;
+  &:hover {
+    border-color: var(--primary-color);
+    color: var(--text-color);
   }
 
-  &-kv-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    padding: 8px 12px;
-    background: var(--control-bg, rgba(0, 0, 0, 0.03));
-    border-radius: 6px;
-    font-size: 13px;
+  &.is-active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: var(--button-primary-color, #fff);
 
-    strong { min-width: 140px; font-weight: 600; }
-
-    code {
-      flex: 1;
-      padding: 4px 8px;
-      background: var(--body-bg, #fff);
-      border: 1px solid var(--control-bg, rgba(0, 0, 0, 0.1));
-      border-radius: 4px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 12px;
-      word-break: break-all;
-    }
-  }
-
-  // ── Collapsible details (Mailgun/Postmark/Cloudflare/script) ────────────
-  &-details {
-    margin-top: 8px;
-    padding: 10px 14px;
-    background: var(--body-bg, #fff);
-    border: 1px solid var(--control-bg, rgba(0, 0, 0, 0.08));
-    border-radius: 6px;
-
-    summary {
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 13px;
-      color: var(--primary-color, #2e7d32);
-      list-style: revert;
-
-      &::marker, &::-webkit-details-marker {
-        color: var(--primary-color, #2e7d32);
-      }
-    }
-
-    ol {
-      margin: 10px 0 0 20px;
-      font-size: 13px;
-
-      li { margin-bottom: 4px; }
-    }
-
-    code {
-      background: var(--control-bg, rgba(0, 0, 0, 0.06));
-      padding: 1px 6px;
-      border-radius: 3px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 12px;
-    }
-  }
-
-  // ── Script collapsible card ──────────────────────────────────────────────
-  &-script {
-    > summary {
-      cursor: pointer;
-      list-style: revert;
-
-      &::marker, &::-webkit-details-marker {
-        color: var(--muted-color, #777);
-      }
-
-      h3 {
-        display: inline;
-        font-size: 15px;
-      }
-    }
-
-    &-actions {
-      display: flex;
-      gap: 8px;
-      margin: 12px 0;
-    }
-
-    &-code {
-      background: #0d0d0d;
-      color: #e6e6e6;
-      border-radius: 8px;
-      padding: 14px 16px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 12px;
-      line-height: 1.5;
-      overflow: auto;
-      max-height: 400px;
-      margin: 0 0 12px;
-
-      code {
-        background: transparent;
-        color: inherit;
-        padding: 0;
-        white-space: pre;
-      }
-    }
-
-    &-steps {
-      padding: 12px 14px;
-      background: var(--control-bg, rgba(0, 0, 0, 0.04));
-      border-radius: 6px;
-      font-size: 13px;
-
-      ol {
-        margin: 8px 0 0 18px;
-        padding: 0;
-
-        li { margin-bottom: 4px; }
-      }
-
-      code {
-        background: var(--body-bg, #fff);
-        padding: 1px 6px;
-        border-radius: 3px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 12px;
-      }
-    }
-  }
-
-  // ── Test result pill ─────────────────────────────────────────────────────
-  &-testResult {
-    margin-top: 10px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12.5px;
-    word-break: break-all;
-
-    &[data-ok='1'] {
-      background: rgba(46, 125, 50, 0.12);
-      color: #2e7d32;
-    }
-
-    &[data-ok='0'] {
-      background: rgba(198, 40, 40, 0.12);
-      color: #c62828;
+    .MailReplyAdmin-tabCount {
+      background: rgba(255, 255, 255, 0.24);
+      color: inherit;
     }
   }
 }
 
-// ── Admin sub-navigation (pills horizontais) ────────────────────────────────
-.MailReplyAdminNav {
+.MailReplyAdmin-tabCount {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--control-bg);
+  color: var(--muted-color);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.MailReplyAdmin-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 260px;
+  min-width: 180px;
+  padding: 0 12px;
+  height: 36px;
+  border: 1px solid var(--control-bg);
+  border-radius: 999px;
+  background: var(--control-bg-light, var(--control-bg));
+
+  > .icon {
+    font-size: 12px;
+    color: var(--muted-color);
+    flex-shrink: 0;
+  }
+
+  &:focus-within {
+    border-color: var(--primary-color);
+  }
+
+  @media @phone {
+    flex: 1 1 100%;
+  }
+}
+
+.MailReplyAdmin-searchInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-color);
+
+  &::placeholder {
+    color: var(--muted-color);
+  }
+
+  &::-webkit-search-cancel-button {
+    display: none;
+  }
+}
+
+.MailReplyAdmin-searchClear {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  color: var(--muted-color);
+  cursor: pointer;
+  font-size: 12px;
+
+  &:hover {
+    color: var(--text-color);
+  }
+}
+
+.MailReplyAdmin-empty {
+  margin: 24px 0;
+  padding: 18px;
+  border: 1px dashed var(--control-bg);
+  border-radius: 12px;
+  text-align: center;
+  color: var(--muted-color);
+  font-size: 13px;
+}
+
+.MailReplyAdmin-card {
+  border: 1px solid var(--control-bg);
+  border-radius: 16px;
+  background: var(--body-bg);
+  margin-bottom: 16px;
+}
+
+.MailReplyAdmin-card-header {
   display: flex;
-  gap: 4px;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--control-bg, #e6e6e9);
-  background: var(--header-bg, #fafafa);
-  flex-wrap: wrap;
-  margin-bottom: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--control-bg);
+  background: var(--control-bg-light, var(--control-bg));
+  border-top-left-radius: 15px;
+  border-top-right-radius: 15px;
+}
 
-  &-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border-radius: 999px;
-    color: var(--muted-color, #6b7280);
-    text-decoration: none;
-    font-weight: 500;
+.MailReplyAdmin-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  .mr-tint(var(--primary-color), 12%);
+
+  .icon {
+    font-size: 13px;
+    color: var(--primary-color);
+  }
+}
+
+.MailReplyAdmin-card-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-card-body {
+  padding: 16px 20px 18px;
+  display: flex;
+  flex-direction: column;
+
+  > .Form-group,
+  > .MailReplyAdmin-toggle {
+    margin-bottom: 0;
+  }
+
+  > .Form-group + .Form-group {
+    margin-top: 14px;
+  }
+
+  @media @phone {
+    padding: 14px 16px 16px;
+  }
+}
+
+.MailReplyAdmin-subDivider {
+  height: 1px;
+  background: var(--control-bg);
+  margin: 14px -20px;
+
+  @media @phone {
+    margin: 14px -16px;
+  }
+}
+
+.MailReplyAdmin-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 6px;
+}
+
+.MailReplyAdmin-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 320px;
+  width: 100%;
+}
+
+.MailReplyAdmin-select {
+  width: 100%;
+  padding-right: 32px !important;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.MailReplyAdmin-select-chevron {
+  position: absolute;
+  right: 11px;
+  font-size: 11px;
+  color: var(--muted-color);
+  pointer-events: none;
+}
+
+.MailReplyAdmin-toggle {
+  padding: 6px 0;
+  gap: 0;
+
+  .Switch {
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .Switch-label {
     font-size: 13.5px;
-    transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--text-color);
+  }
 
-    i {
-      opacity: 0.65;
-      font-size: 12.5px;
+  .helpText {
+    margin-top: 4px;
+    margin-left: 65px;
+    font-size: 12px;
+
+    @media @phone {
+      margin-left: 0;
     }
+  }
+}
 
-    &:hover {
-      background: rgba(0, 0, 0, 0.05);
-      color: var(--text-color, #1f2937);
-      text-decoration: none;
+.MailReplyAdmin-narrow .FormControl {
+  max-width: 160px;
+}
 
-      i { opacity: 0.85; }
+.MailReplyAdmin-fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+
+  > .Form-group {
+    margin-bottom: 0;
+  }
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.MailReplyAdmin-inputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: stretch;
+  max-width: 640px;
+
+  > .FormControl {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+.MailReplyAdmin-intro {
+  margin: 0 0 12px;
+}
+
+.MailReplyAdmin-hint {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--control-bg);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-status {
+  --mr-tone: var(--mr-off);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border-left: 3px solid var(--mr-tone);
+  .mr-tint(var(--mr-tone), 9%);
+  font-size: 13px;
+
+  &[data-tone='ok'] {
+    --mr-tone: var(--mr-ok);
+  }
+
+  &[data-tone='warn'] {
+    --mr-tone: var(--mr-warn);
+  }
+
+  > .Button {
+    margin: -4px -6px -4px auto;
+    flex-shrink: 0;
+  }
+}
+
+.MailReplyAdmin-status-dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--mr-tone);
+}
+
+.MailReplyAdmin-status-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  strong {
+    color: var(--heading-color, var(--text-color));
+  }
+}
+
+.MailReplyAdmin-status-detail {
+  color: var(--muted-color);
+  font-size: 12.5px;
+}
+
+.MailReplyAdmin-status-missing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 12px;
+
+  li {
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--body-bg);
+    color: var(--text-color);
+  }
+
+  .MailReplyAdmin-status-missingLabel {
+    padding-left: 0;
+    background: none;
+    color: var(--muted-color);
+    font-weight: 600;
+  }
+}
+
+.MailReplyAdmin-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  @media @phone {
+    grid-template-columns: 1fr;
+  }
+}
+
+.MailReplyAdmin-stat {
+  --mr-accent: var(--mr-ok);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--mr-line);
+  border-top: 3px solid var(--mr-accent);
+
+  &[data-status='rejected'] {
+    --mr-accent: var(--mr-bad);
+  }
+
+  &[data-status='ignored'] {
+    --mr-accent: var(--mr-off);
+  }
+}
+
+.MailReplyAdmin-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--heading-color, var(--text-color));
+}
+
+.MailReplyAdmin-stat-sub {
+  font-size: 11.5px;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-alias {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--control-bg-light, var(--control-bg));
+
+  &.is-pending .MailReplyAdmin-alias-address {
+    opacity: 0.55;
+  }
+}
+
+.MailReplyAdmin-alias-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-settings .MailReplyAdmin-alias-address {
+  display: block;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 1.5;
+  background: var(--body-bg);
+  color: var(--text-color);
+  word-break: break-all;
+}
+
+.MailReplyAdmin-alias-plus,
+.MailReplyAdmin-alias-domain {
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-settings [data-part='user'] {
+  --mr-part: #3b82f6;
+}
+
+.MailReplyAdmin-settings [data-part='discussion'] {
+  --mr-part: #a855f7;
+}
+
+.MailReplyAdmin-settings [data-part='post'] {
+  --mr-part: #14a38b;
+}
+
+.MailReplyAdmin-settings [data-part='sig'] {
+  --mr-part: #d48a12;
+}
+
+.MailReplyAdmin-alias-tag {
+  color: var(--mr-part);
+  font-weight: 700;
+  border-bottom: 2px solid var(--mr-part);
+}
+
+.MailReplyAdmin-alias-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted-color);
+
+  li::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    border-radius: 2px;
+    background: var(--mr-part);
+  }
+}
+
+.MailReplyAdmin-alias-note {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-feed-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.MailReplyAdmin-feed-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.MailReplyAdmin-settings .MailReplyAdmin-feed-filter {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+
+  &.is-active {
+    background: var(--control-bg);
+    color: var(--heading-color, var(--text-color));
+    font-weight: 600;
+  }
+}
+
+.MailReplyAdmin-settings .MailReplyAdmin-feed-refresh {
+  margin-left: auto;
+  font-size: 12.5px;
+}
+
+.MailReplyAdmin-feed-count {
+  margin-left: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.65;
+}
+
+.MailReplyAdmin-feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--mr-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.MailReplyAdmin-feed-item {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 12px 16px;
+  background: var(--body-bg);
+
+  & + & {
+    border-top: 1px solid var(--mr-line);
+  }
+
+  @media (max-width: 600px) {
+    grid-template-columns: auto minmax(0, 1fr);
+
+    .MailReplyAdmin-feed-main {
+      grid-column: ~'1 / -1';
+      grid-row: 2;
     }
+  }
+}
 
-    &.active {
-      background: var(--primary-color, #2e7d32);
-      color: #fff;
-      box-shadow: 0 2px 8px rgba(46, 125, 50, 0.25);
+.MailReplyAdmin-pill {
+  --mr-accent: var(--mr-ok);
+  justify-self: start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--mr-accent);
+  .mr-tint(var(--mr-accent), 14%);
 
-      i { opacity: 1; }
+  &[data-status='rejected'] {
+    --mr-accent: var(--mr-bad);
+  }
+
+  &[data-status='ignored'] {
+    --mr-accent: var(--mr-off);
+  }
+}
+
+.MailReplyAdmin-feed-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 13.5px;
+}
+
+.MailReplyAdmin-feed-user {
+  font-weight: 600;
+
+  .icon {
+    margin-right: 5px;
+    font-size: 11px;
+    color: var(--muted-color);
+  }
+}
+
+.MailReplyAdmin-feed-arrow {
+  color: var(--muted-color);
+  font-size: 12px;
+}
+
+.MailReplyAdmin-feed-discussion {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.MailReplyAdmin-feed-post {
+  margin-left: 4px;
+  color: var(--muted-color);
+  font-size: 12px;
+}
+
+.MailReplyAdmin-feed-missing {
+  color: var(--muted-color);
+  font-style: italic;
+}
+
+.MailReplyAdmin-feed-reason {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-feed-time {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-feed-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 30px 16px;
+  border: 1px dashed var(--mr-line);
+  border-radius: 12px;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--muted-color);
+
+  > .icon {
+    font-size: 24px;
+    opacity: 0.6;
+  }
+}
+
+.MailReplyAdmin-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.MailReplyAdmin-kv-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 6px 6px 12px;
+  border-radius: 8px;
+  background: var(--control-bg-light, var(--control-bg));
+  font-size: 13px;
+
+  strong {
+    min-width: 130px;
+  }
+
+  code {
+    flex: 1;
+    padding: 4px 8px;
+    background: var(--body-bg);
+    word-break: break-all;
+  }
+}
+
+.MailReplyAdmin-details {
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--mr-line);
+  border-radius: 8px;
+
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--link-color, var(--primary-color));
+  }
+
+  ol {
+    margin: 10px 0 0 20px;
+    padding: 0;
+    font-size: 13px;
+
+    li {
+      margin-bottom: 4px;
     }
+  }
+}
+
+.MailReplyAdmin-script-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.MailReplyAdmin-script-code {
+  background: #101114;
+  color: #e6e6e6;
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 400px;
+  margin: 10px 0 0;
+
+  .MailReplyAdmin-settings & code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    white-space: pre;
+    word-break: normal;
+  }
+}
+
+.MailReplyAdmin-script-steps {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--control-bg-light, var(--control-bg));
+  font-size: 13px;
+
+  ol {
+    margin: 8px 0 0 18px;
+    padding: 0;
+
+    li {
+      margin-bottom: 6px;
+    }
+  }
+}
+
+.MailReplyAdmin-script-note {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--muted-color);
+}
+
+.MailReplyAdmin-testResult {
+  --mr-accent: var(--mr-ok);
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-family: var(--mr-mono);
+  font-size: 12.5px;
+  word-break: break-word;
+  color: var(--mr-accent);
+  .mr-tint(var(--mr-accent), 12%);
+
+  &[data-ok='0'] {
+    --mr-accent: var(--mr-bad);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .MailReplyAdmin-settings * {
+    transition: none !important;
   }
 }

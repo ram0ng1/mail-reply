@@ -8,6 +8,7 @@ use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Ramon\MailReply\Inbound\ImapFetcher;
 use Ramon\MailReply\Mail\ReplyAddressConfig;
 use Ramon\MailReply\Service\SecretBox;
 use Throwable;
@@ -56,17 +57,7 @@ class TestImapController implements RequestHandlerInterface
         }
 
         try {
-            $clientManager = new ClientManager();
-            $client = $clientManager->make([
-                'host'           => $config['host'],
-                'port'           => $config['port'],
-                'encryption'     => $config['encryption'] === 'none' ? false : $config['encryption'],
-                'validate_cert'  => $config['validate_cert'],
-                'username'       => $config['username'],
-                'password'       => $config['password'],
-                'protocol'       => 'imap',
-                'authentication' => null,
-            ]);
+            $client = ImapFetcher::makeClient($config);
 
             $client->connect();
 
@@ -81,7 +72,7 @@ class TestImapController implements RequestHandlerInterface
                     ], 200);
                 }
 
-                $unseen = $folder->query()->unseen()->limit(1)->get()->count();
+                $unseen = $folder->query()->unseen()->count();
 
                 return new JsonResponse([
                     'ok' => true,
@@ -130,9 +121,10 @@ class TestImapController implements RequestHandlerInterface
     }
 
     /**
-     * Quando o admin testa antes de salvar, a senha vem no body em
-     * plaintext (override). Quando lê do settings (sem override), está
-     * cifrada e precisa de decode via SecretBox.
+     * Valores do body sobrepõem os salvos para o admin testar antes de
+     * salvar. A senha pode chegar em texto puro (digitada agora) ou ainda
+     * cifrada (`mp1:` — o campo devolve o valor salvo); `decode()` trata
+     * os dois casos.
      *
      * @param array<string, mixed> $override
      * @return array{host: string, port: int, encryption: string, validate_cert: bool, username: string, password: string, mailbox: string}
@@ -145,22 +137,17 @@ class TestImapController implements RequestHandlerInterface
             return $value === null || $value === '' ? $default : $value;
         };
 
-        $rawPassword = (string) $pick('imap_password', '');
-        $password = '';
-        if ($rawPassword !== '') {
-            $fromOverride = array_key_exists('imap_password', $override) && $override['imap_password'] !== null && $override['imap_password'] !== '';
-            try {
-                $password = $fromOverride ? $rawPassword : $this->secretBox->decode($rawPassword);
-            } catch (Throwable $e) {
-                $password = '';
-            }
+        try {
+            $password = $this->secretBox->decode((string) $pick('imap_password', ''));
+        } catch (Throwable) {
+            $password = '';
         }
 
         return [
             'host'          => (string) $pick('imap_host', ''),
             'port'          => (int) $pick('imap_port', 993),
             'encryption'    => (string) $pick('imap_encryption', 'ssl'),
-            'validate_cert' => (bool) $pick('imap_validate_cert', true),
+            'validate_cert' => filter_var($pick('imap_validate_cert', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
             'username'      => (string) $pick('imap_username', ''),
             'password'      => $password,
             'mailbox'       => (string) $pick('imap_mailbox', 'INBOX'),

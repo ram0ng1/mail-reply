@@ -1,0 +1,61 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Parameter \#1 \$command of method Flarum\\Extend\\Console\:\:command\(\) expects class\-string\<Flarum\\Console\\AbstractCommand\|Illuminate\\Console\\Command\>, string given\.$#'
+			identifier: argument.type
+			count: 4
+			path: extend.php
+
+		-
+			message: '#^Parameter \#1 \$command of method Flarum\\Extend\\Console\:\:schedule\(\) expects class\-string\<Flarum\\Console\\AbstractCommand\|Illuminate\\Console\\Command\>, string given\.$#'
+			identifier: argument.type
+			count: 2
+			path: extend.php
+
+		-
+			message: '#^Access to an undefined property Flarum\\Post\\Post\:\:\$mailReplyMeta\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Api/ExposeViaMailReply.php
+
+		-
+			message: '#^While loop condition is always true\.$#'
+			identifier: while.alwaysTrue
+			count: 1
+			path: src/Console/FetchInboundEmailCommand.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Contracts\\Cache\\Repository\:\:lock\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Inbound/FetchLoop.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Contracts\\Cache\\Repository\:\:lock\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Inbound/ImapFetcher.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<Flarum\\Discussion\\Discussion\>\:\:whereVisibleTo\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Inbound/InboundProcessor.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<Flarum\\Post\\Post\>\:\:whereVisibleTo\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Inbound/InboundProcessor.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Contracts\\Cache\\Repository\:\:lock\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/MailReplyServiceProvider.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Contracts\\Cache\\Repository\:\:lock\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Token/TokenService.php

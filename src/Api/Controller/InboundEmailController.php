@@ -5,12 +5,15 @@ namespace Ramon\MailReply\Api\Controller;
 use Flarum\Foundation\ErrorHandling\LogReporter;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
+use Illuminate\Contracts\Cache\Repository;
 use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Ramon\MailReply\Inbound\RecipientExtractor;
 use Ramon\MailReply\Job\ProcessInboundEmailJob;
 use Ramon\MailReply\Parser\Rfc822Parser;
+use Ramon\MailReply\Service\SecretBox;
 use Throwable;
 
 /**
@@ -22,19 +25,12 @@ use Throwable;
  *   2. Provedores como Mailgun/Postmark — form-data ou JSON canônico.
  *
  * Autenticação: header `X-Mail-Reply-Token` com segredo configurado no
- * admin. CSRF é isento via `Extend\Csrf::exemptRoute()` no extend.php
+ * admin, ou assinatura do Mailgun quando a signing key está salva. CSRF é isento via `Extend\Csrf::exemptRoute()` no extend.php
  * (caller é externo, não tem session/CSRF token).
  *
- * Modo de operação: o admin escolhe um modo único de entrega:
- * `imap` (poller dentro do queue:work), `webhook` (este endpoint),
- * `disabled` (nenhum). Quando o modo não é `webhook`, o endpoint retorna
- * 403 — evita dupla entrega caso o admin tenha configurado ambos.
- *
- * O processamento pesado (parsing MIME, lookup, validação, criação do
- * post) sai pra `ProcessInboundEmailJob` via Bus — o controller só
- * normaliza o payload e despacha. Em queue driver `sync` o comportamento
- * é igual ao inline antigo; em queue real, libera o budget do webhook do
- * provider (Mailgun/Postmark cortam em ~30s).
+ * Fora do modo `webhook` o endpoint responde 404 — evita dupla entrega
+ * quando IMAP e webhook foram configurados juntos. O processamento sai
+ * para o `ProcessInboundEmailJob`; o controller só normaliza e despacha.
  */
 class InboundEmailController implements RequestHandlerInterface
 {
@@ -43,22 +39,39 @@ class InboundEmailController implements RequestHandlerInterface
         protected LogReporter $log,
         protected Rfc822Parser $rfc822,
         protected BusDispatcher $bus,
+        protected Repository $cache,
+        protected SecretBox $secretBox,
     ) {
     }
 
+    /**
+     * Teto do corpo bruto aceito. Respostas de fórum cabem com folga;
+     * anexos grandes não são suportados e não devem prender o worker.
+     */
+    public const MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+    public const MAILGUN_MAX_SKEW_SECONDS = 300;
+
+    /**
+     * Detalhes de falha (classe, mensagem) vão só para o log: o caller é
+     * externo e não autenticado até o hash_equals. O processamento sai do
+     * request via `dispatch()` — em fila real responde na hora; no driver
+     * `sync` o job roda inline e captura as próprias exceções.
+     */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        $mode = (string) $this->settings->get('ramon-mail-reply.delivery_mode');
-
-        if ($mode !== 'webhook') {
-            return new JsonResponse([
-                'error' => 'webhook_not_active',
-                'message' => "Webhook is disabled. Current delivery_mode='{$mode}'. Set to 'webhook' in Admin → Mail Reply.",
-            ], 403);
+        if ((string) $this->settings->get('ramon-mail-reply.delivery_mode') !== 'webhook') {
+            return new JsonResponse(['error' => 'webhook_not_active'], 404);
         }
 
         if (! $this->authorize($request)) {
             return new JsonResponse(['error' => 'unauthorized'], 401);
+        }
+
+        $size = $request->getBody()->getSize();
+
+        if ($size !== null && $size > self::MAX_BODY_BYTES) {
+            return new JsonResponse(['error' => 'payload_too_large'], 413);
         }
 
         try {
@@ -66,56 +79,89 @@ class InboundEmailController implements RequestHandlerInterface
         } catch (Throwable $e) {
             $this->log->report($e);
 
-            return new JsonResponse([
-                'ok' => false,
-                'reason' => 'normalise_failed: '.$e->getMessage(),
-                'class' => get_class($e),
-            ], 200);
+            return new JsonResponse(['ok' => false, 'error' => 'invalid_payload'], 422);
         }
 
         try {
-            $this->bus->dispatchSync(new ProcessInboundEmailJob($payload));
+            $this->bus->dispatch(new ProcessInboundEmailJob($payload));
         } catch (Throwable $e) {
             $this->log->report($e);
 
-            return new JsonResponse([
-                'ok' => false,
-                'reason' => $e->getMessage(),
-                'class' => get_class($e),
-            ], 200);
+            return new JsonResponse(['ok' => false, 'error' => 'dispatch_failed'], 500);
         }
 
-        return new JsonResponse([
-            'ok' => true,
-            'received' => true,
-        ]);
-    }
-
-    protected function authorize(ServerRequestInterface $request): bool
-    {
-        $expected = (string) $this->settings->get('ramon-mail-reply.webhook_secret');
-
-        if ($expected === '') {
-            return false;
-        }
-
-        $provided = $request->getHeaderLine('X-Mail-Reply-Token');
-
-        return hash_equals($expected, $provided);
+        return new JsonResponse(['ok' => true, 'received' => true], 202);
     }
 
     /**
-     * Aceita três formas de payload:
+     * Aceita o header `X-Mail-Reply-Token` (scripts pipe, Postmark,
+     * Cloudflare) ou a assinatura nativa do Mailgun, cujas Routes não
+     * enviam headers customizados.
+     */
+    protected function authorize(ServerRequestInterface $request): bool
+    {
+        $expected = (string) $this->settings->get('ramon-mail-reply.webhook_secret');
+        $provided = $request->getHeaderLine('X-Mail-Reply-Token');
+
+        if ($expected !== '' && $provided !== '' && hash_equals($expected, $provided)) {
+            return true;
+        }
+
+        return $this->mailgunSignatureValid($request);
+    }
+
+    /**
+     * Assinatura do Mailgun: HMAC-SHA256(timestamp . token) com a signing
+     * key da conta. Rejeita timestamps fora de uma janela de 5 minutos e
+     * tokens já vistos (replay).
+     */
+    protected function mailgunSignatureValid(ServerRequestInterface $request): bool
+    {
+        $stored = (string) $this->settings->get('ramon-mail-reply.mailgun_signing_key');
+
+        if ($stored === '') {
+            return false;
+        }
+
+        try {
+            $key = $this->secretBox->decode($stored);
+        } catch (Throwable $e) {
+            $this->log->report($e);
+
+            return false;
+        }
+
+        $params = (array) $request->getParsedBody();
+        $timestamp = (string) ($params['timestamp'] ?? '');
+        $token = (string) ($params['token'] ?? '');
+        $signature = strtolower((string) ($params['signature'] ?? ''));
+
+        if ($key === '' || $token === '' || $signature === '' || ! ctype_digit($timestamp)) {
+            return false;
+        }
+
+        if (abs(time() - (int) $timestamp) > self::MAILGUN_MAX_SKEW_SECONDS) {
+            return false;
+        }
+
+        if (! hash_equals(hash_hmac('sha256', $timestamp.$token, $key), $signature)) {
+            return false;
+        }
+
+        return $this->cache->add('mail-reply.mailgun_token.'.hash('sha256', $token), 1, self::MAILGUN_MAX_SKEW_SECONDS * 2);
+    }
+
+    /**
+     * Aceita três formas de payload e devolve o formato canônico do
+     * InboundProcessor:
      *
-     *   1. `Content-Type: message/rfc822` (ou body com cara de header)
-     *      — RFC 822 cru. Caminho preferido pra scripts pipe locais.
-     *   2. `application/json` canônico com {to, from, subject,
-     *      body_text, body_html}.
-     *   3. form-data/x-www-form-urlencoded com nomes dos provedores
-     *      (Mailgun: recipient/sender/body-plain; Postmark: ToFull/
-     *      From/TextBody).
+     *   1. `message/rfc822` (ou corpo com cara de headers) — RFC 822 cru,
+     *      caminho dos scripts pipe e do Cloudflare Email Workers;
+     *   2. JSON (Postmark ou canônico `{to, from, subject, body_text, ...}`);
+     *   3. form-data do Mailgun (`recipient`, `body-plain`, `stripped-text`,
+     *      `message-headers`).
      *
-     * @return array{to: array<int,string>, from: string, subject: string, body_text: string, body_html: string}
+     * @return array{to: array<int,string>, from: string, subject: string, body_text: string, body_html: string, stripped_text: string, message_id: string, headers: array<string, array<int,string>>}
      */
     protected function normalise(ServerRequestInterface $request): array
     {
@@ -123,43 +169,81 @@ class InboundEmailController implements RequestHandlerInterface
         $raw = (string) $request->getBody();
 
         if (str_contains($contentType, 'message/rfc822') || $this->looksLikeRfc822($raw, $contentType)) {
-            $parsed = $this->rfc822->parse($raw);
-
-            return [
-                'to'        => $parsed['to'],
-                'from'      => $parsed['from'],
-                'subject'   => $parsed['subject'],
-                'body_text' => $parsed['body_text'],
-                'body_html' => $parsed['body_html'],
-            ];
+            return ['stripped_text' => ''] + $this->rfc822->parse($raw);
         }
 
         $params = (array) $request->getParsedBody();
 
-        if ($params === [] || $params === null) {
+        if ($params === []) {
             $json = json_decode($raw, true);
-            if (is_array($json)) {
-                $params = $json;
-            }
+            $params = is_array($json) ? $json : [];
         }
+
+        $headers = $this->providerHeaders($params);
 
         $to = $params['recipient']
             ?? $params['To']
             ?? $params['to']
-            ?? $this->mapAddressList($params['ToFull'] ?? []);
+            ?? null;
 
-        $from = $params['sender']
-            ?? $params['From']
-            ?? $params['from']
-            ?? '';
+        $recipients = $this->mapAddressList($params['ToFull'] ?? []);
+        foreach (is_array($to) ? $to : RecipientExtractor::splitAddresses((string) $to) as $address) {
+            $recipients[] = (string) $address;
+        }
+        foreach (RecipientExtractor::fromHeaders($headers) as $address) {
+            $recipients[] = $address;
+        }
+
+        $from = (string) ($params['sender'] ?? $params['From'] ?? $params['from'] ?? '');
 
         return [
-            'to'        => is_array($to) ? $to : [(string) $to],
-            'from'      => (string) $from,
-            'subject'   => (string) ($params['subject'] ?? $params['Subject'] ?? ''),
-            'body_text' => (string) ($params['body-plain'] ?? $params['TextBody'] ?? $params['body_text'] ?? $params['text'] ?? ''),
-            'body_html' => (string) ($params['body-html'] ?? $params['HtmlBody'] ?? $params['body_html'] ?? $params['html'] ?? ''),
+            'to'            => array_values(array_unique(array_filter(array_map('trim', $recipients)))),
+            'from'          => RecipientExtractor::firstAddress($from) ?: $from,
+            'subject'       => (string) ($params['subject'] ?? $params['Subject'] ?? ''),
+            'body_text'     => (string) ($params['body-plain'] ?? $params['TextBody'] ?? $params['body_text'] ?? $params['text'] ?? ''),
+            'body_html'     => (string) ($params['body-html'] ?? $params['HtmlBody'] ?? $params['body_html'] ?? $params['html'] ?? ''),
+            'stripped_text' => (string) ($params['stripped-text'] ?? $params['StrippedTextReply'] ?? $params['stripped_text'] ?? ''),
+            'message_id'    => (string) ($params['Message-Id'] ?? $params['message-id'] ?? $params['message_id'] ?? Rfc822Parser::first($headers, 'message-id')),
+            'headers'       => $headers,
         ];
+    }
+
+    /**
+     * Headers originais nos formatos dos provedores: Mailgun manda
+     * `message-headers` como JSON `[[nome, valor], ...]`; Postmark manda
+     * `Headers` como `[{Name, Value}, ...]`; o formato canônico aceita um
+     * mapa `{nome: valor}`.
+     *
+     * @param array<string, mixed> $params
+     * @return array<string, array<int, string>>
+     */
+    protected function providerHeaders(array $params): array
+    {
+        $list = $params['message-headers'] ?? $params['Headers'] ?? $params['headers'] ?? [];
+
+        if (is_string($list)) {
+            $list = json_decode($list, true) ?: [];
+        }
+
+        $headers = [];
+
+        foreach ((array) $list as $key => $entry) {
+            if (is_array($entry) && isset($entry[0], $entry[1])) {
+                [$name, $value] = [$entry[0], $entry[1]];
+            } elseif (is_array($entry) && isset($entry['Name'], $entry['Value'])) {
+                [$name, $value] = [$entry['Name'], $entry['Value']];
+            } elseif (is_string($key) && is_scalar($entry)) {
+                [$name, $value] = [$key, $entry];
+            } else {
+                continue;
+            }
+
+            if (is_scalar($name) && is_scalar($value)) {
+                $headers[strtolower(trim((string) $name))][] = trim((string) $value);
+            }
+        }
+
+        return $headers;
     }
 
     /**
@@ -181,7 +265,7 @@ class InboundEmailController implements RequestHandlerInterface
     }
 
     /**
-     * @param array<int, array{Email?: string}> $list
+     * @param array<int|string, mixed> $list
      * @return array<int, string>
      */
     protected function mapAddressList(array $list): array
