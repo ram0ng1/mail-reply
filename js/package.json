@@ -6,10 +6,10 @@
   "devDependencies": {
     "@flarum/prettier-config": "^1.0.0",
     "flarum-tsconfig": "^2.0.0",
-    "flarum-webpack-config": "^3.0.4",
+    "flarum-webpack-config": "^3.0.6",
     "prettier": "^3.4.2",
     "typescript": "^6.0.3",
-    "webpack": "^5.97.1",
+    "webpack": "^5.111.1",
     "webpack-cli": "^6.0.1"
   },
   "scripts": {
