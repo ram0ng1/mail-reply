@@ -28,8 +28,8 @@ final class InboundEmailControllerTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    private const WEBHOOK_SECRET = 'pipe-secret-0123456789';
-    private const SIGNING_KEY = 'key-mailgun-signing-abcdef';
+    private const WEBHOOK_SECRET = 'test-webhook-secret';
+    private const SIGNING_KEY = 'test-signing-key';
 
     private ArraySettings $settings;
     private Repository $cache;
@@ -97,7 +97,7 @@ final class InboundEmailControllerTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private static function mailgunForm(string $key = self::SIGNING_KEY, ?int $timestamp = null, string $token = 'tok-1234567890abcdef'): array
+    private static function mailgunForm(string $key = self::SIGNING_KEY, ?int $timestamp = null, string $token = 'test-token'): array
     {
         $timestamp ??= time();
 

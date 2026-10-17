@@ -56,8 +56,9 @@ final class SecretBoxTest extends TestCase
         $box = Secrets::box();
         $encoded = $box->encode('top secret');
 
-        $last = substr($encoded, -1);
-        $tampered = substr($encoded, 0, -1).($last === 'A' ? 'B' : 'A');
+        $raw = base64_decode(strtr(substr($encoded, 4), '-_', '+/'));
+        $raw[30] = chr(ord($raw[30]) ^ 0x01);
+        $tampered = 'mp1:'.rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
 
         $this->expectException(RuntimeException::class);
         $box->decode($tampered);
