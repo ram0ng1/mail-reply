@@ -3,6 +3,7 @@
 namespace Ramon\MailReply\Console;
 
 use Flarum\Settings\SettingsRepositoryInterface;
+use Ramon\MailReply\Inbound\FetchLoop;
 use Ramon\MailReply\Inbound\ImapFetcher;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -26,6 +27,7 @@ class FetchInboundEmailCommand extends Command
     public function __construct(
         protected ImapFetcher $fetcher,
         protected SettingsRepositoryInterface $settings,
+        protected FetchLoop $loop,
     ) {
         parent::__construct();
     }
@@ -36,6 +38,7 @@ class FetchInboundEmailCommand extends Command
         $this->addOption('verbose-status', null, InputOption::VALUE_NONE, 'Always print a status line (default: silent when IMAP not configured, useful for cron).');
         $this->addOption('loop', null, InputOption::VALUE_NONE, 'Run in a polling loop instead of returning after one fetch. Use with --interval.');
         $this->addOption('interval', null, InputOption::VALUE_REQUIRED, 'Seconds to wait between iterations when --loop is set.', '60');
+        $this->addOption('if-idle', null, InputOption::VALUE_NONE, 'Skip when the queue-driven fetch loop is alive (used by the scheduler).');
     }
 
     /**
@@ -45,6 +48,10 @@ class FetchInboundEmailCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if ($input->getOption('if-idle') && $this->loop->isAlive()) {
+            return Command::SUCCESS;
+        }
+
         $limit = max(1, (int) $input->getOption('limit'));
         $verbose = (bool) $input->getOption('verbose-status');
         $loop = (bool) $input->getOption('loop');
@@ -84,7 +91,7 @@ class FetchInboundEmailCommand extends Command
             return Command::SUCCESS;
         }
 
-        if (! $this->isImapConfigured()) {
+        if (! ImapFetcher::configuredIn($this->settings)) {
             if ($verbose) {
                 $output->writeln('<comment>mail-reply:fetch — IMAP not configured (skipping silently)</comment>');
             }
@@ -99,6 +106,14 @@ class FetchInboundEmailCommand extends Command
             return Command::FAILURE;
         }
 
+        if ($result['locked']) {
+            if ($verbose) {
+                $output->writeln('<comment>mail-reply:fetch — another fetch is running (skipping)</comment>');
+            }
+
+            return Command::SUCCESS;
+        }
+
         $output->writeln(sprintf(
             '[%s] mail-reply:fetch — processed=%d failed=%d skipped=%d',
             date('H:i:s'),
@@ -108,16 +123,5 @@ class FetchInboundEmailCommand extends Command
         ));
 
         return Command::SUCCESS;
-    }
-
-    protected function isImapConfigured(): bool
-    {
-        foreach (['imap_host', 'imap_username', 'imap_password'] as $key) {
-            if (trim((string) $this->settings->get('ramon-mail-reply.'.$key)) === '') {
-                return false;
-            }
-        }
-
-        return true;
     }
 }

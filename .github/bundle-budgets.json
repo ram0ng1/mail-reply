@@ -1,0 +1,5 @@
+{
+  "_comment": "Teto em bytes por bundle de js/dist (raw = minificado, gzip = nível 9). Medido em out/2026: forum.js ≈1.0 KB raw / 0.6 KB gzip, admin.js ≈16.3 KB raw / 5.5 KB gzip. A folga cobre a migração para TypeScript; estourar o teto reprova o job bundle-size.",
+  "forum.js": { "raw": 8192, "gzip": 3072 },
+  "admin.js": { "raw": 40960, "gzip": 12288 }
+}

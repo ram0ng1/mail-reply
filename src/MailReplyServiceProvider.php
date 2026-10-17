@@ -8,27 +8,19 @@ use Flarum\Settings\SettingsRepositoryInterface;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Cache\Repository;
 use Psr\Log\LoggerInterface;
-use Ramon\MailReply\Job\FetchInboundEmailsJob;
+use Ramon\MailReply\Inbound\FetchLoop;
+use Ramon\MailReply\Inbound\ImapFetcher;
 use Ramon\MailReply\Mail\CombinedEmailMutator;
 use Throwable;
 
 /**
- * Reescreve o binding de MutateEmail → CombinedEmailMutator (workaround do
- * events->until() do Laravel que para no primeiro listener), faz o
- * bootstrap automático do fetch loop, e garante que o `webhook_secret`
- * existe sempre que o modo está em `webhook`.
- *
- * Bootstrap: se IMAP está configurado e não há FetchInboundEmailsJob ativo,
- * dispatcha um. A partir daí o job se re-enfileira a cada 60s — tudo dentro
- * do queue:work normal do Flarum, sem cron nem comando manual. Em caso de
- * morte do loop (queue:flush, worker crash), o próximo HTTP request ou tick
- * do worker redispatcha automaticamente via heartbeat com TTL 180s.
+ * Troca o listener `MutateEmail` do core pelo `CombinedEmailMutator`,
+ * garante o `webhook_secret` no modo webhook e mantém o loop de polling
+ * IMAP vivo quando há fila real. Com o driver `sync` o polling fica a
+ * cargo do agendador (`mail-reply:fetch --if-idle` a cada minuto).
  */
 class MailReplyServiceProvider extends AbstractServiceProvider
 {
-    private const HEARTBEAT_KEY = 'mail-reply.loop_heartbeat';
-    private const HEARTBEAT_TTL = 180;
-    private const BOOTSTRAP_LOCK_KEY = 'mail-reply.bootstrap_lock';
     private const WEBHOOK_SECRET_LOCK_KEY = 'mail-reply.webhook_secret_gen';
 
     public function register(): void
@@ -36,128 +28,64 @@ class MailReplyServiceProvider extends AbstractServiceProvider
         $this->container->bind(MutateEmail::class, CombinedEmailMutator::class);
     }
 
-    public function boot(): void
-    {
-        $this->ensureWebhookSecret();
-        $this->ensureFetchLoopRunning();
-    }
-
     /**
-     * Se o admin ativa modo `webhook` mas esqueceu de setar
-     * `webhook_secret`, o endpoint rejeita silenciosamente com 401 (o
-     * authorize devolve false quando expected é vazio). Em vez de deixar
-     * o admin descobrir só depois de configurar o MTA, geramos um segredo
-     * aleatório aqui e logamos warn — admin abre a aba "Webhook" e vê o
-     * segredo já preenchido pronto pra copiar no script PHP.
-     *
-     * Race entre múltiplos workers chegando junto: cache lock atômico de
-     * 5s + double-check do setting dentro do lock.
+     * Roda em todo request: as checagens baratas (settings em memória)
+     * vêm antes de qualquer acesso a cache ou fila.
      */
-    protected function ensureWebhookSecret(): void
+    public function boot(): void
     {
         try {
             /** @var SettingsRepositoryInterface $settings */
             $settings = $this->container->make(SettingsRepositoryInterface::class);
+            $mode = (string) $settings->get('ramon-mail-reply.delivery_mode');
 
-            if ((string) $settings->get('ramon-mail-reply.delivery_mode') !== 'webhook') {
-                return;
-            }
-
-            if ((string) $settings->get('ramon-mail-reply.webhook_secret') !== '') {
-                return;
-            }
-
-            /** @var Repository $cache */
-            $cache = $this->container->make(Repository::class);
-
-            $lock = $cache->lock(self::WEBHOOK_SECRET_LOCK_KEY, 5);
-            if (! $lock->get()) {
-                return;
-            }
-
-            try {
-                if ((string) $settings->get('ramon-mail-reply.webhook_secret') !== '') {
-                    return;
-                }
-
-                $generated = bin2hex(random_bytes(32));
-                $settings->set('ramon-mail-reply.webhook_secret', $generated);
-
-                /** @var LoggerInterface $logger */
-                $logger = $this->container->make(LoggerInterface::class);
-                $logger->warning('[mail-reply] webhook_secret was missing; auto-generated one — copy it from Admin → Mail Reply → Webhook into the MTA script.');
-            } finally {
-                $lock->release();
+            if ($mode === 'webhook') {
+                $this->ensureWebhookSecret($settings);
+            } elseif ($mode === 'imap' && ImapFetcher::configuredIn($settings)) {
+                $this->container->make(FetchLoop::class)
+                    ->startIfStale($this->container->make(Dispatcher::class));
             }
         } catch (Throwable $e) {
-            try {
-                $this->container->make(LoggerInterface::class)
-                    ->warning('[mail-reply] webhook_secret bootstrap failed', [
-                        'error' => $e->getMessage(),
-                    ]);
-            } catch (Throwable $ignored) {
-            }
+            $this->warn('[mail-reply] boot bootstrap failed', $e);
         }
     }
 
     /**
-     * Loop só faz sentido em modo IMAP com host/user/senha preenchidos.
-     * Race entre múltiplos requests/workers (todos vendo o heartbeat
-     * expirado) é resolvida pelo cache lock atômico: apenas UM dispatcha;
-     * os outros saem. Double-check dentro do lock cobre o caso de outro
-     * processo ter setado o flag enquanto bloqueávamos.
+     * Gera o segredo do webhook quando o admin ativou o modo sem
+     * preenchê-lo — sem ele o endpoint recusaria tudo com 401. Lock
+     * atômico + double-check contra workers concorrentes.
      */
-    protected function ensureFetchLoopRunning(): void
+    protected function ensureWebhookSecret(SettingsRepositoryInterface $settings): void
+    {
+        if ((string) $settings->get('ramon-mail-reply.webhook_secret') !== '') {
+            return;
+        }
+
+        $lock = $this->container->make(Repository::class)->lock(self::WEBHOOK_SECRET_LOCK_KEY, 5);
+
+        if (! $lock->get()) {
+            return;
+        }
+
+        try {
+            if ((string) $settings->get('ramon-mail-reply.webhook_secret') !== '') {
+                return;
+            }
+
+            $settings->set('ramon-mail-reply.webhook_secret', bin2hex(random_bytes(32)));
+
+            $this->container->make(LoggerInterface::class)
+                ->warning('[mail-reply] webhook_secret was missing; auto-generated one — copy it from Admin → Mail Reply → Webhook into the MTA script.');
+        } finally {
+            $lock->release();
+        }
+    }
+
+    protected function warn(string $message, Throwable $e): void
     {
         try {
-            /** @var SettingsRepositoryInterface $settings */
-            $settings = $this->container->make(SettingsRepositoryInterface::class);
-
-            $mode = (string) $settings->get('ramon-mail-reply.delivery_mode');
-            if ($mode !== 'imap') {
-                return;
-            }
-
-            foreach (['imap_host', 'imap_username', 'imap_password'] as $key) {
-                if (trim((string) $settings->get('ramon-mail-reply.'.$key)) === '') {
-                    return;
-                }
-            }
-
-            /** @var Repository $cache */
-            $cache = $this->container->make(Repository::class);
-
-            if ($cache->has(self::HEARTBEAT_KEY)) {
-                return;
-            }
-
-            $lock = $cache->lock(self::BOOTSTRAP_LOCK_KEY, 30);
-
-            if (! $lock->get()) {
-                return;
-            }
-
-            try {
-                if ($cache->has(self::HEARTBEAT_KEY)) {
-                    return;
-                }
-
-                $cache->put(self::HEARTBEAT_KEY, time(), self::HEARTBEAT_TTL);
-
-                /** @var Dispatcher $bus */
-                $bus = $this->container->make(Dispatcher::class);
-                $bus->dispatch(new FetchInboundEmailsJob());
-            } finally {
-                $lock->release();
-            }
-        } catch (Throwable $e) {
-            try {
-                $this->container->make(LoggerInterface::class)
-                    ->warning('[mail-reply] auto-bootstrap failed', [
-                        'error' => $e->getMessage(),
-                    ]);
-            } catch (Throwable $ignored) {
-            }
+            $this->container->make(LoggerInterface::class)->warning($message, ['error' => $e->getMessage()]);
+        } catch (Throwable) {
         }
     }
 }

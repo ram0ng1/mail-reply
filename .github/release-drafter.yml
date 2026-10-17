@@ -1,0 +1,69 @@
+# Tags sem prefixo `v` (convenção do repositório: 0.1.0-beta, 2.0.0, ...).
+name-template: '$RESOLVED_VERSION'
+tag-template: '$RESOLVED_VERSION'
+exclude-labels:
+  - 'pular changelog'
+categories:
+  - title: '⚠️ Alterações Críticas (Breaking Changes)'
+    labels:
+      - 'BC'
+  - title: '🔒 Segurança'
+    labels:
+      - 'seguranca'
+  - title: '🔨 Melhoria'
+    labels:
+      - 'melhoria'
+  - title: '🐞 Correções de Erros'
+    labels:
+      - 'correcao'
+  - title: '🚀 Performance'
+    labels:
+      - 'performance'
+  - title: '📖 Documentação'
+    labels:
+      - 'documentacao'
+  - title: '♻️ Refatoração'
+    labels:
+      - 'refatoracao'
+  - title: '📦 Dependências'
+    labels:
+      - 'dependencias'
+  - title: '🌍 Traduções'
+    labels:
+      - 'traducao'
+  - title: '🔧 Manutenção'
+    labels:
+      - 'manutencao'
+# A versão dos releases é calculada no release-management.yml a partir da
+# última tag git (label "BC" => minor; qualquer outra => patch) e passada
+# explicitamente ao release-drafter via input `version`. Este resolver fica
+# como fallback/documentação e espelha a mesma regra — sem "major" automático.
+version-resolver:
+  minor:
+    labels:
+      - 'BC'
+  patch:
+    labels:
+      - 'seguranca'
+      - 'melhoria'
+      - 'correcao'
+      - 'performance'
+      - 'documentacao'
+      - 'refatoracao'
+      - 'dependencias'
+      - 'traducao'
+      - 'manutencao'
+  default: patch
+change-template: '- $TITLE (PR #$NUMBER) por @$AUTHOR'
+template: |
+  ## O que mudou no Mail Reply ✉️
+  $CHANGES
+
+  ## 📦 Como atualizar
+
+  ```bash
+  composer require ramon/mail-reply:$RESOLVED_VERSION
+  php flarum migrate
+  php flarum cache:clear
+  php flarum assets:publish
+  ```

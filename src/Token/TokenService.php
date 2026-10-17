@@ -38,6 +38,8 @@ class TokenService
 {
     private const SIG_LENGTH = 16;
 
+    protected ?string $key = null;
+
     public function __construct(
         protected SettingsRepositoryInterface $settings,
         protected ReplyAddressConfig $replyAddress,
@@ -167,7 +169,7 @@ class TokenService
      */
     protected function sign(string $payload): string
     {
-        return hash_hmac('sha256', $payload, $this->resolveKey());
+        return hash_hmac('sha256', $payload, $this->key ??= $this->resolveKey());
     }
 
     /**

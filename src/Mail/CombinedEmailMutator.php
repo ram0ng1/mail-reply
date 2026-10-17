@@ -6,35 +6,35 @@ use Flarum\Discussion\Discussion;
 use Flarum\Foundation\ErrorHandling\LogReporter;
 use Flarum\Mail\MutateEmail;
 use Flarum\Post\Post;
+use Flarum\Settings\SettingsRepositoryInterface;
 use Illuminate\Mail\Events\MessageSending;
 use Psr\Log\LoggerInterface;
 use Ramon\MailReply\Token\TokenService;
 use Throwable;
 
 /**
- * Workaround para o `events->until()` do Laravel Mailer.
+ * Substitui o listener `Flarum\Mail\MutateEmail` via binding no container.
  *
- * Laravel dispara `MessageSending` via `until()` (Mailer.php:603 em
- * vendor/illuminate/mail), que PARA no primeiro listener que retornar
- * valor não-null. `Flarum\Mail\MutateEmail::handle()` do core retorna
- * `true` para adicionar `List-Unsubscribe` e portanto bloqueia qualquer
- * listener subsequente — incluindo o nosso.
- *
- * Como `MailServiceProvider::boot()` do core registra MutateEmail antes
- * de qualquer extend.php ser lido, é impossível para uma extensão
- * registrar um listener que rode antes. Por isso ESTENDEMOS o
- * MutateEmail e reusamos a resolução via container: ao fazer
- * `$container->bind(MutateEmail::class, CombinedEmailMutator::class)` no
- * ServiceProvider, o Dispatcher do Laravel resolve essa classe ao invés
- * da original em `Dispatcher::createClassCallable`, porque ele chama
- * `$this->container->make($class)`.
- *
- * Resultado: nossa lógica de Reply-To roda no MESMO callback do core,
- * com acesso ao mesmo `$event->data` (que inclui blueprint + user), sem
- * ordem de listener importar.
+ * Até o Flarum 2.0.1 o `MutateEmail::handle()` do core devolve `true`, e o
+ * `events->until()` do Laravel Mailer para no primeiro valor não-null —
+ * nenhum outro listener de `MessageSending` roda. No 2.0.2 o core passa a
+ * devolver `void`. Por isso compomos em vez de herdar: chamamos o
+ * mutator do core e depois injetamos o Reply-To, sem tipo de retorno —
+ * a assinatura é compatível com todas as versões 2.0.x e não interrompe
+ * os listeners de outras extensões.
  */
-class CombinedEmailMutator extends MutateEmail
+class CombinedEmailMutator
 {
+    /**
+     * Pedem a servidores e clientes que não respondam automaticamente
+     * (férias, Outlook OOF, reações do Teams) — o retorno viraria post.
+     */
+    private const AUTO_REPLY_SUPPRESSION_HEADERS = [
+        'Auto-Submitted' => 'auto-generated',
+        'X-Auto-Response-Suppress' => 'All',
+        'x-ms-reactions' => 'disallow',
+    ];
+
     /**
      * Memoização por-request do flag `is_private` por discussion_id.
      * Mailer dispara MessageSending múltiplas vezes em um batch de
@@ -48,26 +48,24 @@ class CombinedEmailMutator extends MutateEmail
         protected TokenService $tokens,
         protected LogReporter $log,
         protected LoggerInterface $logger,
+        protected SettingsRepositoryInterface $settings,
     ) {
     }
 
     /**
-     * 1) Comportamento original do core: adicionar List-Unsubscribe quando
-     * o blueprint forneceu unsubscribeLink. 2) Nossa lógica: adicionar
-     * Reply-To com alias assinado por HMAC. Sempre devolve true para
-     * manter o contrato original.
+     * Roda o mutator do core (List-Unsubscribe e afins) e em seguida
+     * adiciona o Reply-To assinado. Não devolve valor: `until()` segue
+     * para os próximos listeners em qualquer versão do core.
      */
-    public function handle(MessageSending $event): bool
+    public function handle(MessageSending $event)
     {
-        parent::handle($event);
+        (new MutateEmail())->handle($event);
 
         try {
             $this->injectReplyTo($event);
         } catch (Throwable $e) {
             $this->log->report($e);
         }
-
-        return true;
     }
 
     /**
@@ -81,37 +79,29 @@ class CombinedEmailMutator extends MutateEmail
      */
     protected function injectReplyTo(MessageSending $event): void
     {
-        $data = (array) ($event->data ?? []);
+        $data = $event->data;
         $user = $data['user'] ?? null;
         $blueprint = $data['blueprint'] ?? null;
 
-        $this->logger->info('[mail-reply] MessageSending observed', [
-            'has_user' => is_object($user),
-            'has_blueprint' => is_object($blueprint),
-            'blueprint' => is_object($blueprint) ? get_class($blueprint) : null,
-            'user_id' => is_object($user) ? ($user->id ?? null) : null,
-        ]);
-
         if (! is_object($user) || ! is_object($blueprint)) {
+            return;
+        }
+
+        if ((string) $this->settings->get('ramon-mail-reply.delivery_mode') === 'disabled') {
             return;
         }
 
         $discussionId = $this->extractDiscussionId($blueprint);
 
         if ($discussionId === null) {
-            $this->logger->warning('[mail-reply] skip: blueprint has no discussion', [
+            $this->logger->debug('[mail-reply] skip: blueprint has no discussion', [
                 'blueprint' => get_class($blueprint),
-                'user_id' => $user->id ?? null,
             ]);
+
             return;
         }
 
         if ($this->isPrivateDiscussionId($discussionId)) {
-            $this->logger->info('[mail-reply] skip: private discussion (mail-reply is public-only)', [
-                'discussion_id' => $discussionId,
-                'blueprint' => get_class($blueprint),
-                'user_id' => $user->id ?? null,
-            ]);
             return;
         }
 
@@ -120,11 +110,8 @@ class CombinedEmailMutator extends MutateEmail
         $aliasAddress = $this->tokens->mintAddress((int) $user->id, $discussionId, $postId);
 
         if ($aliasAddress === null) {
-            $this->logger->warning('[mail-reply] skip: reply_address NOT CONFIGURED — set Admin → Extensions → Mail Reply → "Reply mailbox"', [
-                'user_id' => $user->id ?? null,
-                'discussion_id' => $discussionId,
-                'post_id' => $postId,
-            ]);
+            $this->logger->debug('[mail-reply] skip: reply mailbox not configured');
+
             return;
         }
 
@@ -133,17 +120,15 @@ class CombinedEmailMutator extends MutateEmail
         $headers->remove('Reply-To');
         $headers->addMailboxListHeader('Reply-To', [$aliasAddress]);
 
+        foreach (self::AUTO_REPLY_SUPPRESSION_HEADERS as $name => $value) {
+            if (! $headers->has($name)) {
+                $headers->addTextHeader($name, $value);
+            }
+        }
+
         if ($postId !== null && $postId > 0) {
             $this->ensureSubjectHasPostId($message, $postId);
         }
-
-        $this->logger->info('[mail-reply] added Reply-To alias', [
-            'user_id' => (int) $user->id,
-            'discussion_id' => $discussionId,
-            'post_id' => $postId,
-            'reply_to' => $aliasAddress,
-            'blueprint' => get_class($blueprint),
-        ]);
     }
 
     /**
@@ -173,26 +158,18 @@ class CombinedEmailMutator extends MutateEmail
     }
 
     /**
-     * Consulta `discussions.is_private` (fof/byobu) com memoização por
-     * request. Em hosts sem byobu a coluna não existe; capturamos a
-     * exception e tratamos como público — o catch também serve como
-     * proteção pra discussions deletadas (find devolve null).
+     * Lê `discussions.is_private` (fof/byobu) com memoização por request.
+     * `select *` evita referenciar a coluna pelo nome: em fóruns sem byobu
+     * ela não existe e o atributo simplesmente vem nulo (público).
      */
     protected function isPrivateDiscussionId(int $discussionId): bool
     {
-        if (isset($this->privateCache[$discussionId])) {
-            return $this->privateCache[$discussionId];
+        if (! isset($this->privateCache[$discussionId])) {
+            $discussion = Discussion::query()->find($discussionId);
+            $this->privateCache[$discussionId] = (bool) $discussion?->getAttribute('is_private');
         }
 
-        try {
-            $isPrivate = (bool) Discussion::query()
-                ->where('id', $discussionId)
-                ->value('is_private');
-        } catch (Throwable $e) {
-            $isPrivate = false;
-        }
-
-        return $this->privateCache[$discussionId] = $isPrivate;
+        return $this->privateCache[$discussionId];
     }
 
     /**

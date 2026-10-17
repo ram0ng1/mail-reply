@@ -4,3 +4,4 @@ composer.lock
 .vscode
 node_modules
 CLAUDE.md
+.phpunit.cache

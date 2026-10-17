@@ -123,7 +123,7 @@ class EmailParser
         foreach ($lines as $line) {
             $trimmed = trim($line);
 
-            if (preg_match('/^--\S/', $trimmed)) {
+            if (preg_match('/^--(?!-*$)\S+$/', $trimmed)) {
                 $skipNextBlank = true;
                 continue;
             }
@@ -150,19 +150,74 @@ class EmailParser
     }
 
     /**
-     * Se o payload parece HTML, descarta tags mas preserva quebras de
-     * parágrafo (parser de quote olha linhas em branco pra detectar).
+     * HTML vira texto preservando a estrutura de linhas que o detector de
+     * citação usa: blocos (`div`, `p`, `li`, `tr`…) e `<br>` viram quebras.
+     * Antes disso, os contêineres de citação dos clientes de e-mail
+     * (`blockquote`, `.gmail_quote`, `#divRplyFwdMsg` do Outlook e tudo
+     * que vem depois dele, `.yahoo_quoted`) são removidos.
      */
     protected function toPlainText(string $body): string
     {
-        if (preg_match('/<(html|body|div|p|br)[\s>]/i', $body)) {
-            $body = preg_replace('/<br\s*\/?>/i', "\n", $body);
-            $body = preg_replace('/<\/p>/i', "\n\n", $body);
-            $body = strip_tags($body);
-            $body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if (preg_match('/<(html|body|div|p|br|blockquote|table|span)[\s>\/]/i', $body)) {
+            $body = $this->stripQuoteContainers($body);
+            $body = preg_replace('#<(script|style|head)\b[^>]*>.*?</\1>#is', '', $body) ?? $body;
+            $body = preg_replace('#<br\s*/?>#i', "\n", $body) ?? $body;
+            $body = preg_replace('#</?(div|p|li|ul|ol|tr|table|h[1-6]|blockquote|pre|hr)\b[^>]*>#i', "\n", $body) ?? $body;
+            $body = html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $body = preg_replace('/[ \t\x{00A0}]+\n/u', "\n", $body) ?? $body;
+            $body = preg_replace('/\n{3,}/', "\n\n", $body) ?? $body;
+            $body = trim($body, "\n");
         }
 
         return str_replace(["\r\n", "\r"], "\n", $body);
+    }
+
+    protected function stripQuoteContainers(string $html): string
+    {
+        if (! class_exists(\DOMDocument::class)) {
+            return preg_replace('#<blockquote\b.*?</blockquote>#is', '', $html) ?? $html;
+        }
+
+        $doc = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $doc->loadHTML('<?xml encoding="UTF-8"><div id="mr-root">'.$html.'</div>', LIBXML_NONET | LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            return $html;
+        }
+
+        $xpath = new \DOMXPath($doc);
+
+        foreach (iterator_to_array($xpath->query('//*[@id="divRplyFwdMsg" or @id="appendonsend"]') ?: []) as $node) {
+            while ($node->nextSibling !== null) {
+                $node->parentNode?->removeChild($node->nextSibling);
+            }
+            $node->parentNode?->removeChild($node);
+        }
+
+        $quotes = '//blockquote'
+            .' | //*[contains(concat(" ", normalize-space(@class), " "), " gmail_quote ")]'
+            .' | //*[contains(concat(" ", normalize-space(@class), " "), " yahoo_quoted ")]'
+            .' | //*[contains(concat(" ", normalize-space(@class), " "), " moz-cite-prefix ")]';
+
+        foreach (iterator_to_array($xpath->query($quotes) ?: []) as $node) {
+            $node->parentNode?->removeChild($node);
+        }
+
+        $root = $doc->getElementById('mr-root');
+
+        if ($root === null) {
+            return $html;
+        }
+
+        $out = '';
+        foreach ($root->childNodes as $child) {
+            $out .= $doc->saveHTML($child);
+        }
+
+        return $out;
     }
 
     /**

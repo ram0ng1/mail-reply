@@ -1,0 +1,25 @@
+# Branch → label, lido pelo actions/labeler (formato v5+: regex em
+# `head-branch`). Os nomes batem com .github/labels.json e com as
+# categorias do .github/release-drafter.yml.
+BC:
+  - head-branch: ['^bc/']
+seguranca:
+  - head-branch: ['^seguranca/']
+melhoria:
+  - head-branch: ['^melhoria/']
+correcao:
+  - head-branch: ['^correcao/', '^conserto/', '^ajuste/']
+dependencias:
+  - head-branch: ['^dependencias/']
+documentacao:
+  - head-branch: ['^docs/', '^documentacao/']
+manutencao:
+  - head-branch: ['^manutencao/']
+performance:
+  - head-branch: ['^performance/']
+traducao:
+  - head-branch: ['^traducao/']
+refatoracao:
+  - head-branch: ['^refatoracao/']
+'pular changelog':
+  - head-branch: ['^release/']
