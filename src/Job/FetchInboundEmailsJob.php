@@ -17,10 +17,22 @@ use Throwable;
  * registrado em cache se re-enfileira, então um bootstrap concorrente
  * nunca multiplica cadeias. Com o driver `sync` o delay é ignorado pelo
  * Laravel — o job não se re-enfileira nesse caso (o agendador cobre).
+ *
+ * O próximo tick é enfileirado antes do fetch: se o worker matar o
+ * processo por timeout, a cadeia continua viva. Por isso `$tries = 1` —
+ * um retry do mesmo tick criaria uma segunda cadeia com o mesmo id.
  */
 class FetchInboundEmailsJob extends AbstractJob
 {
     public const POLL_INTERVAL_SECONDS = 60;
+
+    public int $tries = 1;
+
+    /**
+     * Abaixo do `retry_after` padrão (60s no fof/redis) para o job nunca
+     * ser re-entregue enquanto ainda roda; o ciclo do ImapFetcher cabe aqui.
+     */
+    public int $timeout = 55;
 
     public function __construct(
         public string $loopId = '',
@@ -47,6 +59,10 @@ class FetchInboundEmailsJob extends AbstractJob
 
         $loop->beat();
 
+        $bus->dispatch(
+            (new self($this->loopId))->delay(Carbon::now()->addSeconds(self::POLL_INTERVAL_SECONDS)),
+        );
+
         if ($fetcher->isConfigured()) {
             try {
                 $fetcher->fetch();
@@ -56,9 +72,5 @@ class FetchInboundEmailsJob extends AbstractJob
                 ]);
             }
         }
-
-        $bus->dispatch(
-            (new self($this->loopId))->delay(Carbon::now()->addSeconds(self::POLL_INTERVAL_SECONDS)),
-        );
     }
 }

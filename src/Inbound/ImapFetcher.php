@@ -11,11 +11,17 @@ use Ramon\MailReply\Service\SecretBox;
 use RuntimeException;
 use Throwable;
 use Webklex\PHPIMAP\ClientManager;
+use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
+use Webklex\PHPIMAP\IMAP;
 
 /**
  * Coleta respostas não lidas de uma caixa IMAP e as entrega ao
  * InboundProcessor no mesmo formato do webhook. `webklex/php-imap` é
  * dependência opcional (`suggest`), checada em tempo de execução.
+ *
+ * Usa só o protocolo de baixo nível (`UID SEARCH`, `BODY.PEEK[]`,
+ * `UID STORE`): o `Query::get()` da biblioteca faz NOOP + STORE extras por
+ * mensagem e estoura o timeout do worker em caixas com várias pendentes.
  *
  * Destino de cada mensagem após o ciclo:
  *   - processada ou recusada em definitivo → apagada (ou só lida, conforme
@@ -29,7 +35,22 @@ class ImapFetcher
     public const DEFAULT_LIMIT = 50;
     public const LAST_FETCH_KEY = 'mail-reply.last_fetch';
     private const FETCH_LOCK_KEY = 'mail-reply.fetch_lock';
-    private const FETCH_LOCK_SECONDS = 300;
+    public const MAX_MESSAGE_BYTES = 10 * 1024 * 1024;
+
+    /**
+     * Maior que o pior ciclo (orçamento + um read travado), para o lock nunca
+     * expirar no meio; curto o bastante para um worker morto não bloquear
+     * a caixa por muito tempo.
+     */
+    private const FETCH_LOCK_SECONDS = 90;
+
+    /**
+     * Mensagens restantes ficam não lidas para o próximo ciclo — mantém o
+     * ciclo bem abaixo do `$timeout` do FetchInboundEmailsJob.
+     */
+    private const TIME_BUDGET_SECONDS = 25;
+
+    private const SOCKET_TIMEOUT_SECONDS = 15;
 
     public function __construct(
         protected SettingsRepositoryInterface $settings,
@@ -38,6 +59,7 @@ class ImapFetcher
         protected LoggerInterface $logger,
         protected SecretBox $secretBox,
         protected Repository $cache,
+        protected Rfc822Parser $parser,
     ) {
     }
 
@@ -84,12 +106,17 @@ class ImapFetcher
     }
 
     /**
+     * Uma falha ao marcar/apagar aborta o ciclo: a conexão provavelmente
+     * caiu, e o dedupe por Message-ID do InboundProcessor torna seguro
+     * reprocessar no próximo ciclo o que ficou sem flag.
+     *
      * @param array{host: string, port: int, encryption: string, validate_cert: bool, username: string, password: string, mailbox: string, delete_after: bool} $config
      * @return array{processed: int, failed: int, skipped: int}
      */
     protected function fetchLocked(array $config, int $limit): array
     {
-        $client = self::makeClient($config);
+        $deadline = microtime(true) + self::TIME_BUDGET_SECONDS;
+        $client = $this->client($config);
         $client->connect();
 
         try {
@@ -99,34 +126,53 @@ class ImapFetcher
                 throw new RuntimeException(sprintf('IMAP mailbox "%s" not found.', $config['mailbox']));
             }
 
-            $messages = $folder->query()->unseen()->setFetchOrder('asc')->limit($limit)->get();
+            $client->openFolder($folder->path);
+            $connection = $client->getConnection();
+
+            if (! $connection instanceof ImapProtocol) {
+                throw new RuntimeException('Unexpected IMAP protocol implementation: '.get_class($connection));
+            }
+
+            $uids = $this->unseenUids($connection, $limit);
+            $sizes = $uids === [] ? [] : $this->messageSizes($connection, $uids);
 
             $counts = ['processed' => 0, 'failed' => 0, 'skipped' => 0];
             $deleted = false;
 
-            foreach ($messages as $message) {
-                $outcome = $this->handleMessage($message);
+            foreach ($uids as $uid) {
+                if (microtime(true) >= $deadline) {
+                    break;
+                }
+
+                $outcome = $this->handleUid($connection, $uid, $sizes[$uid] ?? 0);
                 $counts[$outcome === 'foreign' ? 'skipped' : $outcome]++;
 
                 try {
                     if (in_array($outcome, ['processed', 'skipped'], true) && $config['delete_after']) {
-                        $message->delete(false);
+                        $connection->store(['\Deleted'], $uid, null, '+', true, IMAP::ST_UID)->validate();
                         $deleted = true;
                     } else {
-                        $message->setFlag('Seen');
+                        $connection->store(['\Seen'], $uid, null, '+', true, IMAP::ST_UID)->validate();
                     }
-                } catch (Throwable) {
+                } catch (Throwable $e) {
+                    $this->logger->warning('[mail-reply] IMAP flag update failed; ending cycle early', ['error' => $e->getMessage()]);
+
+                    break;
                 }
             }
 
             if ($deleted) {
-                $client->expunge();
+                try {
+                    $connection->expunge();
+                } catch (Throwable $e) {
+                    $this->logger->warning('[mail-reply] IMAP expunge failed', ['error' => $e->getMessage()]);
+                }
             }
 
             $this->cache->forever(self::LAST_FETCH_KEY, ['at' => time()] + $counts);
 
             if (array_sum($counts) > 0) {
-                $this->logger->info('[mail-reply] IMAP fetch cycle complete', ['mailbox' => $config['mailbox']] + $counts);
+                $this->logger->info('[mail-reply] IMAP fetch cycle complete', ['mailbox' => $config['mailbox'], 'pending' => count($uids)] + $counts);
             }
 
             return $counts;
@@ -139,22 +185,81 @@ class ImapFetcher
     }
 
     /**
-     * `foreign` = a mensagem não é resposta a um alias do fórum (caixa
-     * compartilhada, spam, newsletter): fica só marcada como lida, nunca
-     * apagada — não é nossa para descartar.
+     * @return array<int, int> UIDs em ordem crescente (mais antigas primeiro)
+     */
+    protected function unseenUids(ImapProtocol $connection, int $limit): array
+    {
+        $result = $connection->search(['UNSEEN'], IMAP::ST_UID)->validatedData();
+
+        $uids = array_values(array_unique(array_map('intval', array_filter(
+            is_array($result) ? $result : [],
+            fn ($id) => is_scalar($id) && ctype_digit((string) $id),
+        ))));
+        sort($uids);
+
+        return array_slice($uids, 0, max(1, $limit));
+    }
+
+    /**
+     * @param array<int, int> $uids
+     * @return array<int, int>
+     */
+    protected function messageSizes(ImapProtocol $connection, array $uids): array
+    {
+        $rows = $connection->sizes($uids, IMAP::ST_UID)->validatedData();
+        $sizes = [];
+
+        foreach (is_array($rows) ? $rows : [] as $uid => $size) {
+            if (is_scalar($size)) {
+                $sizes[(int) $uid] = (int) $size;
+            }
+        }
+
+        return $sizes;
+    }
+
+    /**
+     * `BODY.PEEK[]` não marca a mensagem como lida — quem decide a flag é o
+     * fetchLocked, conforme o resultado.
      *
      * @return 'processed'|'failed'|'skipped'|'foreign'
      */
-    protected function handleMessage(object $message): string
+    protected function handleUid(ImapProtocol $connection, int $uid, int $size): string
     {
+        if ($size > self::MAX_MESSAGE_BYTES) {
+            $this->logger->warning('[mail-reply] inbound message too large; kept in mailbox', ['uid' => $uid, 'bytes' => $size]);
+
+            return 'failed';
+        }
+
         try {
-            $payload = $this->buildPayload($message);
+            $rows = $connection->fetch(['UID', 'BODY.PEEK[]'], [$uid], null, IMAP::ST_UID)->validatedData();
+            $raw = is_array($rows) ? ($rows[$uid]['BODY[]'] ?? null) : null;
+
+            if (! is_string($raw) || $raw === '') {
+                throw new RuntimeException(sprintf('IMAP message UID %d returned no body.', $uid));
+            }
+
+            $payload = $this->parser->parse($raw);
         } catch (Throwable $e) {
             $this->log->report($e);
 
             return 'failed';
         }
 
+        return $this->handlePayload($payload);
+    }
+
+    /**
+     * `foreign` = a mensagem não é resposta a um alias do fórum (caixa
+     * compartilhada, spam, newsletter): fica só marcada como lida, nunca
+     * apagada — não é nossa para descartar.
+     *
+     * @param array{to: array<int,string>, from: string, subject: string, body_text: string, body_html: string, message_id: string, headers: array<string, array<int,string>>} $payload
+     * @return 'processed'|'failed'|'skipped'|'foreign'
+     */
+    protected function handlePayload(array $payload): string
+    {
         if ($payload['to'] === []) {
             return 'foreign';
         }
@@ -184,6 +289,14 @@ class ImapFetcher
     /**
      * @param array{host: string, port: int, encryption: string, validate_cert: bool, username: string, password: string} $config
      */
+    protected function client(array $config): \Webklex\PHPIMAP\Client
+    {
+        return self::makeClient($config);
+    }
+
+    /**
+     * @param array{host: string, port: int, encryption: string, validate_cert: bool, username: string, password: string} $config
+     */
     public static function makeClient(array $config): \Webklex\PHPIMAP\Client
     {
         return (new ClientManager())->make([
@@ -195,7 +308,7 @@ class ImapFetcher
             'password'       => $config['password'],
             'protocol'       => 'imap',
             'authentication' => null,
-            'timeout'        => 30,
+            'timeout'        => self::SOCKET_TIMEOUT_SECONDS,
         ]);
     }
 
@@ -247,27 +360,5 @@ class ImapFetcher
         if (! class_exists(ClientManager::class)) {
             throw new RuntimeException('webklex/php-imap is required for IMAP polling. Run: composer require webklex/php-imap');
         }
-    }
-
-    /**
-     * Os headers vêm do bloco cru (`Header::$raw`) e passam pelo mesmo
-     * parser do webhook — recipients, Message-ID e sinais de
-     * auto-resposta ficam idênticos nos dois modos de entrega.
-     *
-     * @return array{to: array<int,string>, from: string, subject: string, body_text: string, body_html: string, message_id: string, headers: array<string, array<int,string>>}
-     */
-    protected function buildPayload(object $message): array
-    {
-        $headers = Rfc822Parser::parseHeaderBlock((string) ($message->getHeader()->raw ?? ''));
-
-        return [
-            'to'         => RecipientExtractor::fromHeaders($headers),
-            'from'       => RecipientExtractor::firstAddress(Rfc822Parser::first($headers, 'from')),
-            'subject'    => Rfc822Parser::decodeWords(Rfc822Parser::first($headers, 'subject')),
-            'body_text'  => (string) $message->getTextBody(),
-            'body_html'  => (string) $message->getHTMLBody(),
-            'message_id' => trim(Rfc822Parser::first($headers, 'message-id')),
-            'headers'    => $headers,
-        ];
     }
 }
