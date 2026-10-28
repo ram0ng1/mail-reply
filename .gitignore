@@ -5,3 +5,5 @@ composer.lock
 node_modules
 CLAUDE.md
 .phpunit.cache
+/tests/integration/tmp
+/tests/hosting/results

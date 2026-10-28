@@ -1,10 +1,12 @@
 {
   "name": "@ramon/mail-reply",
+  "description": "Reply-by-email for Flarum.",
+  "license": "MIT",
   "version": "0.1.0",
   "private": true,
-  "prettier": "@flarum/prettier-config",
   "devDependencies": {
     "@flarum/prettier-config": "^1.0.0",
+    "cross-env": "^10.1.0",
     "flarum-tsconfig": "^2.0.0",
     "flarum-webpack-config": "^3.0.7",
     "prettier": "^3.4.2",
@@ -15,8 +17,10 @@
   "scripts": {
     "dev": "webpack --mode development --watch",
     "build": "webpack --mode production",
+    "analyze": "cross-env ANALYZER=true npm run build",
     "format": "prettier --write src",
     "format-check": "prettier --check src",
     "check-typings": "tsc --noEmit --emitDeclarationOnly false"
-  }
+  },
+  "prettier": "@flarum/prettier-config"
 }

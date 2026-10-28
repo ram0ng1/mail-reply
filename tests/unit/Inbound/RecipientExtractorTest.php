@@ -1,0 +1,110 @@
+<?php
+
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace Ramon\MailReply\Tests\unit\Inbound;
+
+use PHPUnit\Framework\TestCase;
+use Ramon\MailReply\Inbound\RecipientExtractor;
+
+final class RecipientExtractorTest extends TestCase
+{
+    public function test_envelope_headers_come_before_visible_to_and_cc(): void
+    {
+        $headers = [
+            'to'              => ['Forum <noreply@forum.test>'],
+            'cc'              => ['cc@example.com'],
+            'x-original-to'   => ['reply+u1d2-aaaaaaaaaaaaaaaa@reply.forum.test'],
+            'x-forwarded-to'  => ['fwd@example.com'],
+        ];
+
+        self::assertSame([
+            'reply+u1d2-aaaaaaaaaaaaaaaa@reply.forum.test',
+            'fwd@example.com',
+            'noreply@forum.test',
+            'cc@example.com',
+        ], RecipientExtractor::fromHeaders($headers));
+    }
+
+    public function test_received_for_clause_is_used_last(): void
+    {
+        $headers = [
+            'to'       => ['visible@example.com'],
+            'received' => [
+                'from a by b with ESMTP id 123 for <hidden+tag@reply.forum.test>; Mon, 5 Jan 2026 10:00:00 +0000',
+                'from c by d with LMTP for bare@reply.forum.test; Mon, 5 Jan 2026 10:00:00 +0000',
+                'from e by f with SMTP id 99',
+            ],
+        ];
+
+        self::assertSame(
+            ['visible@example.com', 'hidden+tag@reply.forum.test', 'bare@reply.forum.test'],
+            RecipientExtractor::fromHeaders($headers),
+        );
+    }
+
+    public function test_duplicates_are_removed_and_scalar_header_values_are_accepted(): void
+    {
+        $headers = [
+            'delivered-to' => 'same@example.com',
+            'to'           => 'Same <same@example.com>, other@example.com',
+        ];
+
+        self::assertSame(['same@example.com', 'other@example.com'], RecipientExtractor::fromHeaders($headers));
+    }
+
+    public function test_split_addresses_respects_commas_inside_quotes(): void
+    {
+        self::assertSame(
+            ['john@example.com', 'jane@example.com', 'plain@example.com'],
+            RecipientExtractor::splitAddresses('"Doe, John" <john@example.com>, "Roe, Jane" <jane@example.com>,plain@example.com'),
+        );
+    }
+
+    public function test_first_address_prefers_angle_brackets_and_handles_bare_or_missing(): void
+    {
+        self::assertSame('a+tag@x.example', RecipientExtractor::firstAddress('Display a@decoy.example <a+tag@x.example>'));
+        self::assertSame('bare.name=x@sub.example.org', RecipientExtractor::firstAddress('bare.name=x@sub.example.org'));
+        self::assertSame('', RecipientExtractor::firstAddress('undisclosed-recipients:;'));
+        self::assertSame([], RecipientExtractor::fromHeaders([]));
+    }
+
+    public function test_hostile_headers_are_split_in_linear_time(): void
+    {
+        $started = microtime(true);
+
+        $headers = [
+            'to' => [str_repeat(',', 200_000), str_repeat('a@b', 70_000).' <x@y.z>'],
+            'cc' => [str_repeat('"x", ', 40_000).'last@example.com'],
+            'x-envelope-to' => array_fill(0, 8, str_repeat('n@example.com, ', 7_000)),
+        ];
+        $recipients = RecipientExtractor::fromHeaders($headers);
+
+        self::assertLessThan(2.0, microtime(true) - $started);
+        self::assertContains('n@example.com', $recipients);
+    }
+
+    public function test_address_count_per_header_is_capped(): void
+    {
+        $list = implode(', ', array_map(fn ($i) => "u$i@example.com", range(1, 500)));
+
+        self::assertCount(RecipientExtractor::MAX_ADDRESSES_PER_HEADER, RecipientExtractor::splitAddresses($list));
+    }
+
+    public function test_escaped_quote_inside_display_name(): void
+    {
+        self::assertSame(
+            ['a@example.com', 'b@example.com'],
+            RecipientExtractor::splitAddresses('"Say \\"hi, there\\"" <a@example.com>, b@example.com'),
+        );
+    }
+}
