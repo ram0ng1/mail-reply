@@ -3,7 +3,7 @@ name: Security Scan
 # Duas camadas de SAST:
 #   1. Rulesets genéricos do Semgrep (PHP, OWASP, secrets, JS).
 #   2. Regras específicas de Flarum v2 (.github/semgrep/flarum-v2.yaml) —
-#      derivadas do playbook de segurança CLAUDE.md (§2–§37).
+#      específicas do Flarum 2.
 # Audits de dependência ficam no ci.yml (composer audit, npm audit,
 # dependency-review). CodeQL (JS/TS) fica no codeql.yml.
 on:
@@ -17,7 +17,7 @@ on:
     - cron: '0 7 * * 1'  # toda segunda, 07:00 UTC
   workflow_dispatch:
 
-# §35.13 C1 — default-deny.
+# Nega tudo ao GITHUB_TOKEN por padrão; cada job declara o que precisa.
 permissions: {}
 
 concurrency:
@@ -83,7 +83,7 @@ jobs:
       # tudo mas NÃO reprova — os achados legados ficam informativos no SARIF.
       # Assim o gate aperta o código novo (inclui o gerado por IA) sem travar
       # no legado, no mesmo espírito do baseline do PHPStan.
-      - name: Semgrep — regras Flarum v2 (CLAUDE.md)
+      - name: Semgrep — regras Flarum v2
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}

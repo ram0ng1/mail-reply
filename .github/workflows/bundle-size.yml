@@ -1,7 +1,7 @@
 name: Bundle Size
 
 # Mede o tamanho dos bundles JS (js/dist/**.js, raw + gzip). Em PR, compara
-# contra a baseline do último push em main e comenta os deltas 🟢/🔴.
+# contra a baseline do último push em main e comenta as diferenças.
 # Companheiro do performance.yml: aquele mede runtime (Lighthouse), este pega
 # regressão de PESO do bundle. O delta vs main é report-only; o teto absoluto
 # por arquivo (.github/bundle-budgets.json) reprova o job `measure`.
@@ -14,7 +14,7 @@ on:
       - main
   workflow_dispatch:
 
-# §35.13 C1 — default-deny do GITHUB_TOKEN.
+# Nega tudo ao GITHUB_TOKEN por padrão; cada job declara o que precisa.
 permissions: {}
 
 concurrency:

@@ -3,10 +3,10 @@ name: Limpar Releases Antigas
 on:
   workflow_dispatch:
 
-# §35.13 C1 — default-deny.
+# Nega tudo ao GITHUB_TOKEN por padrão; cada job declara o que precisa.
 permissions: {}
 
-# §35.13 I4 — uma execução por vez (operação destrutiva).
+# Uma limpeza por vez: duas apagariam o mesmo conjunto.
 concurrency:
   group: cleanup-releases
   cancel-in-progress: false
@@ -18,13 +18,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920  # v2.20.0
+      # Harden-runner: job usa GITHUB_TOKEN com contents:write.
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
+          allowed-endpoints: >
+            api.github.com:443
 
       - name: Apagar releases antigas
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -35,8 +38,11 @@ jobs:
               { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
             );
 
-            // Sort by published_at descending (newest first)
-            releases.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+            // Sort by published_at descending (newest first).
+            // Drafts (no published_at) sort to the bottom by treating null as epoch.
+            releases.sort((a, b) =>
+              new Date(b.published_at || 0) - new Date(a.published_at || 0)
+            );
 
             const toDelete = releases.slice(KEEP);
 
@@ -46,12 +52,14 @@ jobs:
             for (const release of toDelete) {
               console.log(`Apagando release: ${release.tag_name} (id: ${release.id})`);
 
+              // Delete the release
               await github.rest.repos.deleteRelease({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: release.id,
               });
 
+              // Delete the associated tag
               try {
                 await github.rest.git.deleteRef({
                   owner: context.repo.owner,
