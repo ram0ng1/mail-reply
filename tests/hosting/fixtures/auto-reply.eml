@@ -1,0 +1,11 @@
+From: Alice Souza <{{FROM}}>
+To: {{TO}}
+Subject: Resposta automática: [Forum] {{TITLE}}
+Date: {{DATE}}
+Message-ID: <{{MESSAGE_ID}}>
+Auto-Submitted: auto-replied
+X-Autoreply: yes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Estou de férias até segunda-feira.

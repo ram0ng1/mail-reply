@@ -1,0 +1,40 @@
+From: Alice Souza <{{FROM}}>
+To: "Forum" <{{TO}}>
+Subject: RE: [Forum] {{TITLE}}
+Thread-Topic: [Forum] {{TITLE}}
+Date: {{DATE}}
+Message-ID: <{{MESSAGE_ID}}>
+Accept-Language: pt-BR, en-US
+Content-Language: pt-BR
+X-MS-Has-Attach:
+X-MS-TNEF-Correlator:
+Content-Type: multipart/alternative;
+	boundary="_000_DM6PR11MB4123ABCDEF0123456789DM6PR11MB4123namp_"
+MIME-Version: 1.0
+
+--_000_DM6PR11MB4123ABCDEF0123456789DM6PR11MB4123namp_
+Content-Type: text/plain; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+Testei pelo Outlook e chegou certinho.
+
+________________________________
+De: F=F3rum <noreply@forum.test>
+Enviado: ter=E7a-feira, 28 de outubro de 2026 15:00
+Para: Alice Souza <{{FROM}}>
+Assunto: [Forum] {{TITLE}}
+
+Bob respondeu na discuss=E3o.
+
+--_000_DM6PR11MB4123ABCDEF0123456789DM6PR11MB4123namp_
+Content-Type: text/html; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+<html><head><meta http-equiv=3D"Content-Type" content=3D"text/html; charset=
+=3Diso-8859-1"></head><body><div style=3D"font-family: Aptos">Testei pelo O=
+utlook e chegou certinho.</div><div id=3D"appendonsend"></div><hr style=3D"=
+display:inline-block;width:98%"><div id=3D"divRplyFwdMsg" dir=3D"ltr"><b>De=
+:</b> F=F3rum &lt;noreply@forum.test&gt;<br><b>Enviado:</b> ter=E7a-feira</=
+div><div>Bob respondeu na discuss=E3o.</div></body></html>
+
+--_000_DM6PR11MB4123ABCDEF0123456789DM6PR11MB4123namp_--
