@@ -330,7 +330,13 @@ class ImapFetcher
         return (new ClientManager())->make([
             'host'           => $config['host'],
             'port'           => $config['port'],
-            'encryption'     => $config['encryption'] === 'none' ? false : $config['encryption'],
+            // O admin chama `tls` de STARTTLS (porta 143); no webklex `tls` é TLS
+            // direto no socket e STARTTLS se chama `starttls`.
+            'encryption'     => match ($config['encryption']) {
+                'none' => false,
+                'tls' => 'starttls',
+                default => $config['encryption'],
+            },
             'validate_cert'  => $config['validate_cert'],
             'username'       => $config['username'],
             'password'       => $config['password'],

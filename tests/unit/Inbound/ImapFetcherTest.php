@@ -209,4 +209,27 @@ final class ImapFetcherTest extends TestCase
 
         self::assertStringContainsString('TAG4 UID STORE 3 +FLAGS.SILENT (\Seen)', $this->commandsSent());
     }
+
+    /**
+     * @return array<string, array{0: string, 1: string|false}>
+     */
+    public static function encryptions(): array
+    {
+        return [
+            'ssl (993)' => ['ssl', 'ssl'],
+            'STARTTLS (143)' => ['tls', 'starttls'],
+            'sem criptografia' => ['none', false],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('encryptions')]
+    public function test_admin_encryption_maps_to_the_webklex_name(string $setting, string|false $expected): void
+    {
+        $client = ImapFetcher::makeClient([
+            'host' => 'imap.example.com', 'port' => 143, 'encryption' => $setting, 'validate_cert' => true,
+            'username' => 'u', 'password' => 'p',
+        ]);
+
+        self::assertSame($expected === false ? '' : $expected, (string) ($client->encryption ?: ''));
+    }
 }
