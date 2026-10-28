@@ -12,10 +12,13 @@
 namespace Ramon\MailReply\Token;
 
 use Flarum\Settings\SettingsRepositoryInterface;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Database\ConnectionInterface;
 use Psr\Log\LoggerInterface;
 use Ramon\MailReply\Mail\ReplyAddressConfig;
 use Ramon\MailReply\Service\SecretBox;
+use Ramon\MailReply\Support\CacheLock;
 use Throwable;
 
 /**
@@ -55,6 +58,7 @@ class TokenService
         protected Repository $cache,
         protected SecretBox $secretBox,
         protected LoggerInterface $logger,
+        protected ?ConnectionInterface $db = null,
     ) {
     }
 
@@ -201,12 +205,22 @@ class TokenService
             return $this->decryptOrMigrate($stored, 'secret');
         }
 
-        $lock = $this->cache->lock('mail-reply.secret_gen', 5);
+        $lock = CacheLock::make($this->cache, 'mail-reply.secret_gen', 5);
 
         try {
-            $lock->block(5);
+            try {
+                $lock->block(5);
+            } catch (LockTimeoutException $e) {
+                // Outro processo segurou o lock até o fim: a chave dele já
+                // deve estar no banco.
+                if (($stored = $this->storedSecret()) !== '') {
+                    return $this->decryptOrMigrate($stored, 'secret');
+                }
 
-            $stored = (string) $this->settings->get('ramon-mail-reply.secret');
+                throw $e;
+            }
+
+            $stored = $this->storedSecret();
 
             if ($stored !== '') {
                 return $this->decryptOrMigrate($stored, 'secret');
@@ -225,6 +239,20 @@ class TokenService
     }
 
     /**
+     * Lê a chave direto do banco: o repositório de settings guarda tudo em
+     * memória no começo do processo e não veria a chave que outro worker
+     * acabou de gravar.
+     */
+    protected function storedSecret(): string
+    {
+        if ($this->db === null) {
+            return (string) $this->settings->get('ramon-mail-reply.secret');
+        }
+
+        return (string) $this->db->table('settings')->where('key', 'ramon-mail-reply.secret')->value('value');
+    }
+
+    /**
      * Decifra ou trata como plaintext legado. Quando legado, re-escreve
      * cifrado lazily — o operador não precisa rodar comando de migração.
      */
@@ -240,7 +268,7 @@ class TokenService
             throw $e;
         }
 
-        if (! SecretBox::isEncrypted($stored)) {
+        if ($this->secretBox->needsMigration($stored)) {
             try {
                 $this->settings->set('ramon-mail-reply.'.$settingSuffix, $this->secretBox->encode($plain));
                 $this->logger->info('[mail-reply] migrated plaintext secret to encrypted form', [

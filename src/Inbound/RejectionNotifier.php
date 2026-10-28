@@ -31,7 +31,7 @@ class RejectionNotifier
 {
     public const NOTIFIABLE_REASONS = [
         'not_allowed', 'discussion_unavailable', 'private_discussion',
-        'rate_limited', 'empty_body', 'too_long',
+        'rate_limited', 'empty_body', 'too_long', 'validation',
     ];
 
     private const THROTTLE_SECONDS = 86400;

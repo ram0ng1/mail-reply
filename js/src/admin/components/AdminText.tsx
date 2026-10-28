@@ -1,7 +1,8 @@
 import app from 'flarum/admin/app';
 import Component, { type ComponentAttrs } from 'flarum/common/Component';
 import type Mithril from 'mithril';
-import { getStr, KEY, saveSetting } from '../utils/settings';
+import { getStr, isSealed, KEY, saveSetting } from '../utils/settings';
+import { ts } from '../utils/trans';
 
 export interface AdminTextAttrs extends ComponentAttrs {
   setting: string;
@@ -19,23 +20,33 @@ export interface AdminTextAttrs extends ComponentAttrs {
  */
 export default class AdminText extends Component<AdminTextAttrs> {
   timer: ReturnType<typeof setTimeout> | null = null;
+  pending: string | null = null;
 
+  /**
+   * Trocar de aba ou buscar desmonta o campo: o que foi digitado nos
+   * últimos 600 ms é gravado na hora em vez de se perder.
+   */
   onremove() {
     if (this.timer) clearTimeout(this.timer);
+    if (this.pending !== null) saveSetting(this.attrs.setting, this.pending);
   }
 
   view() {
     const { setting, label, help, type = 'text', placeholder, min, addon } = this.attrs;
     const id = 'MailReplyAdmin-' + setting;
     const secret = type === 'password';
+    const stored = getStr(setting);
+    // O valor salvo de um segredo é o texto cifrado: mostrá-lo no campo
+    // convidaria a editar o cifrado, que deixaria de abrir.
+    const sealed = secret && isSealed(stored);
 
     const input = (
       <input
         id={id}
         className="FormControl"
         type={type}
-        value={getStr(setting)}
-        placeholder={placeholder ?? ''}
+        value={sealed ? '' : stored}
+        placeholder={sealed ? ts('secret_saved_placeholder') : (placeholder ?? '')}
         min={min}
         step={type === 'number' ? 1 : undefined}
         autocomplete={secret ? 'new-password' : 'off'}
@@ -63,12 +74,22 @@ export default class AdminText extends Component<AdminTextAttrs> {
   }
 
   change(value: string) {
-    const { setting } = this.attrs;
+    const { setting, type } = this.attrs;
+
+    if (this.timer) clearTimeout(this.timer);
+
+    // Apagar o campo de um segredo já salvo não o remove: sem isso, um
+    // descuido trocaria a chave HMAC e invalidaria os aliases já enviados.
+    if (type === 'password' && value === '' && isSealed(getStr(setting))) {
+      this.pending = null;
+      return;
+    }
 
     app.data.settings[KEY + setting] = value;
-    if (this.timer) clearTimeout(this.timer);
+    this.pending = value;
     this.timer = setTimeout(() => {
       this.timer = null;
+      this.pending = null;
       saveSetting(setting, value);
     }, 600);
   }

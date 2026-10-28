@@ -51,7 +51,7 @@ export default class PipeScript extends Component<PipeScriptAttrs> {
               {t('webhook_install_step1')} <code>{SCRIPT_PATH}</code>
             </li>
             <li>
-              <code>chmod 755</code> + <code>chown root:mail</code>
+              <code>chmod 700</code> + <code>chown</code> {t('webhook_install_step2')}
             </li>
             <li>
               {t('webhook_install_step3')} <code>{PIPE_COMMAND}</code>

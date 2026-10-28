@@ -203,7 +203,9 @@ class InboundEmailController implements RequestHandlerInterface
             $recipients[] = $address;
         }
 
-        $from = (string) ($params['sender'] ?? $params['From'] ?? $params['from'] ?? '');
+        // O From do cabeçalho vem antes do `sender` do Mailgun, que é o
+        // envelope (reescrito por SRS/VERP em encaminhamentos).
+        $from = (string) ($params['from'] ?? $params['From'] ?? $params['sender'] ?? '');
 
         return [
             'to'            => array_values(array_unique(array_filter(array_map('trim', $recipients)))),

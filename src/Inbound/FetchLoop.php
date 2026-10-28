@@ -16,6 +16,7 @@ use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Queue\SyncQueue;
 use Ramon\MailReply\Job\FetchInboundEmailsJob;
+use Ramon\MailReply\Support\CacheLock;
 
 /**
  * Estado do loop de polling IMAP em fila real: heartbeat (TTL 180s) e o
@@ -27,6 +28,7 @@ class FetchLoop
     public const HEARTBEAT_KEY = 'mail-reply.loop_heartbeat';
     public const LOOP_ID_KEY = 'mail-reply.loop_id';
     public const HEARTBEAT_TTL = 180;
+    public const BOOTSTRAP_KEY = 'mail-reply.loop_bootstrapped';
     private const BOOTSTRAP_LOCK_KEY = 'mail-reply.bootstrap_lock';
 
     public function __construct(
@@ -57,6 +59,7 @@ class FetchLoop
     {
         $this->cache->forget(self::HEARTBEAT_KEY);
         $this->cache->forget(self::LOOP_ID_KEY);
+        $this->cache->forget(self::BOOTSTRAP_KEY);
     }
 
     /**
@@ -70,30 +73,33 @@ class FetchLoop
     }
 
     /**
-     * Dispara uma cadeia nova quando não há heartbeat. Lock atômico +
-     * double-check garantem um único bootstrap entre requests/workers
-     * concorrentes. Devolve `true` quando despachou.
+     * Dispara uma cadeia nova quando nenhuma está viva. O heartbeat só é
+     * escrito pelo job: o bootstrap marca a própria tentativa numa chave à
+     * parte, senão uma fila sem worker pareceria viva para sempre e o
+     * `mail-reply:fetch --if-idle` do cron nunca rodaria. Lock atômico +
+     * double-check garantem um único bootstrap por janela. Devolve `true`
+     * quando despachou.
      */
     public function startIfStale(Dispatcher $bus): bool
     {
-        if ($this->isAlive() || $this->queueIsSync()) {
+        if ($this->isAlive() || $this->queueIsSync() || $this->cache->has(self::BOOTSTRAP_KEY)) {
             return false;
         }
 
-        $lock = $this->cache->lock(self::BOOTSTRAP_LOCK_KEY, 30);
+        $lock = CacheLock::make($this->cache, self::BOOTSTRAP_LOCK_KEY, 30);
 
         if (! $lock->get()) {
             return false;
         }
 
         try {
-            if ($this->isAlive()) {
+            if ($this->isAlive() || $this->cache->has(self::BOOTSTRAP_KEY)) {
                 return false;
             }
 
             $loopId = bin2hex(random_bytes(8));
             $this->cache->forever(self::LOOP_ID_KEY, $loopId);
-            $this->beat();
+            $this->cache->put(self::BOOTSTRAP_KEY, time(), self::HEARTBEAT_TTL);
 
             $bus->dispatch(new FetchInboundEmailsJob($loopId));
 

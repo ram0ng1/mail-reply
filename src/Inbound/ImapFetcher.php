@@ -17,6 +17,7 @@ use Illuminate\Contracts\Cache\Repository;
 use Psr\Log\LoggerInterface;
 use Ramon\MailReply\Parser\Rfc822Parser;
 use Ramon\MailReply\Service\SecretBox;
+use Ramon\MailReply\Support\CacheLock;
 use RuntimeException;
 use Throwable;
 use Webklex\PHPIMAP\ClientManager;
@@ -36,8 +37,9 @@ use Webklex\PHPIMAP\IMAP;
  *   - processada ou recusada em definitivo → apagada (ou só lida, conforme
  *     `imap_delete_after`);
  *   - sem alias válido do fórum → só marcada como lida, nunca apagada;
- *   - falha transitória ou de parsing → marcada como lida e mantida para
- *     inspeção manual.
+ *   - falha transitória → fica não lida e volta no próximo ciclo; depois de
+ *     MAX_ATTEMPTS, marcada como lida e mantida para inspeção manual;
+ *   - maior que MAX_MESSAGE_BYTES → marcada como lida e mantida.
  */
 class ImapFetcher
 {
@@ -60,6 +62,12 @@ class ImapFetcher
     private const TIME_BUDGET_SECONDS = 25;
 
     private const SOCKET_TIMEOUT_SECONDS = 15;
+
+    /**
+     * Tentativas de uma mensagem com falha transitória antes de ela ser
+     * marcada como lida e deixada na caixa para inspeção.
+     */
+    public const MAX_ATTEMPTS = 3;
 
     public function __construct(
         protected SettingsRepositoryInterface $settings,
@@ -101,7 +109,7 @@ class ImapFetcher
         $config = $this->config();
         $this->assertConfigured($config);
 
-        $lock = $this->cache->lock(self::FETCH_LOCK_KEY, self::FETCH_LOCK_SECONDS);
+        $lock = CacheLock::make($this->cache, self::FETCH_LOCK_KEY, self::FETCH_LOCK_SECONDS);
 
         if (! $lock->get()) {
             return ['processed' => 0, 'failed' => 0, 'skipped' => 0, 'locked' => true];
@@ -154,7 +162,17 @@ class ImapFetcher
                 }
 
                 $outcome = $this->handleUid($connection, $uid, $sizes[$uid] ?? 0);
-                $counts[$outcome === 'foreign' ? 'skipped' : $outcome]++;
+                $counts[match ($outcome) {
+                    'foreign' => 'skipped',
+                    'retry', 'oversized' => 'failed',
+                    default => $outcome,
+                }]++;
+
+                // Falha transitória (banco fora, lock, conexão): a mensagem
+                // fica não lida para o próximo ciclo, até MAX_ATTEMPTS.
+                if ($outcome === 'retry' && $this->attempt($config['mailbox'], $uid) < self::MAX_ATTEMPTS) {
+                    continue;
+                }
 
                 try {
                     if (in_array($outcome, ['processed', 'skipped'], true) && $config['delete_after']) {
@@ -191,6 +209,18 @@ class ImapFetcher
             } catch (Throwable) {
             }
         }
+    }
+
+    /**
+     * Conta a tentativa e devolve quantas já foram.
+     */
+    protected function attempt(string $mailbox, int $uid): int
+    {
+        $key = 'mail-reply.imap_attempts.'.md5($mailbox).'.'.$uid;
+        $attempts = (int) $this->cache->get($key, 0) + 1;
+        $this->cache->put($key, $attempts, 86400);
+
+        return $attempts;
     }
 
     /**
@@ -231,14 +261,14 @@ class ImapFetcher
      * `BODY.PEEK[]` não marca a mensagem como lida — quem decide a flag é o
      * fetchLocked, conforme o resultado.
      *
-     * @return 'processed'|'failed'|'skipped'|'foreign'
+     * @return 'processed'|'retry'|'oversized'|'skipped'|'foreign'
      */
     protected function handleUid(ImapProtocol $connection, int $uid, int $size): string
     {
         if ($size > self::MAX_MESSAGE_BYTES) {
             $this->logger->warning('[mail-reply] inbound message too large; kept in mailbox', ['uid' => $uid, 'bytes' => $size]);
 
-            return 'failed';
+            return 'oversized';
         }
 
         try {
@@ -253,7 +283,7 @@ class ImapFetcher
         } catch (Throwable $e) {
             $this->log->report($e);
 
-            return 'failed';
+            return 'retry';
         }
 
         return $this->handlePayload($payload);
@@ -265,7 +295,7 @@ class ImapFetcher
      * apagada — não é nossa para descartar.
      *
      * @param array{to: array<int,string>, from: string, subject: string, body_text: string, body_html: string, message_id: string, headers: array<string, array<int,string>>} $payload
-     * @return 'processed'|'failed'|'skipped'|'foreign'
+     * @return 'processed'|'retry'|'skipped'|'foreign'
      */
     protected function handlePayload(array $payload): string
     {
@@ -291,7 +321,7 @@ class ImapFetcher
             $this->logger->warning('[mail-reply] inbound message failed; kept in mailbox', ['error' => $e->getMessage()]);
             $this->log->report($e);
 
-            return 'failed';
+            return 'retry';
         }
     }
 
@@ -332,7 +362,7 @@ class ImapFetcher
         $rawPassword = (string) $this->settings->get('ramon-mail-reply.imap_password');
         $password = $this->secretBox->decode($rawPassword);
 
-        if ($rawPassword !== '' && ! SecretBox::isEncrypted($rawPassword)) {
+        if ($this->secretBox->needsMigration($rawPassword)) {
             try {
                 $this->settings->set('ramon-mail-reply.imap_password', $this->secretBox->encode($password));
             } catch (Throwable $e) {
