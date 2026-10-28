@@ -13,9 +13,8 @@ use Flarum\Database\Migration;
 use Illuminate\Database\Schema\Builder;
 
 /**
- * A refatoração para token stateless (HMAC determinístico) aposentou a
- * tabela `mail_reply_tokens`. Idempotente: numa install nova a tabela
- * sequer existe; num upgrade, dropamos o estado morto.
+ * Remove `mail_reply_tokens`, sem uso desde que os aliases passaram a ser
+ * assinados com HMAC. Idempotente: em instalações novas a tabela não existe.
  */
 return [
     'up' => function (Builder $schema) {

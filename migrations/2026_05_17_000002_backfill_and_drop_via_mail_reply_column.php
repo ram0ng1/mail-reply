@@ -14,12 +14,9 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
 
 /**
- * Migra o boolean legado `posts.via_mail_reply` para rows na companion
- * table `mail_reply_posts` e dropa a coluna. Usa só o query builder —
- * `INSERT IGNORE` e `= 1` em coluna boolean quebram no PostgreSQL. O
- * `whereNotExists` torna o backfill idempotente em qualquer engine.
- *
- * Down recria a coluna e faz o backfill reverso.
+ * Copia `posts.via_mail_reply` para `mail_reply_posts` e remove a coluna.
+ * Só query builder: `INSERT IGNORE` e `= 1` em coluna boolean quebram no
+ * PostgreSQL. O `whereNotExists` deixa o backfill idempotente em qualquer banco.
  */
 return [
     'up' => function (Builder $schema) {

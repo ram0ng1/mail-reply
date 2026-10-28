@@ -19,9 +19,8 @@ use Flarum\Post\CommentPost;
 use Flarum\User\User;
 
 /**
- * Blueprint sintético usado SOMENTE pelo comando mail-reply:simulate-send
- * para satisfazer o contrato de uma notificação real. Não é registrado no
- * service provider — nunca aparece no fluxo de produção.
+ * Blueprint usado apenas pelo `mail-reply:simulate-send`; não é registrado
+ * como notificação.
  */
 class SyntheticBlueprint implements BlueprintInterface, MailableInterface
 {

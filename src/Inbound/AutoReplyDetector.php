@@ -12,11 +12,9 @@
 namespace Ramon\MailReply\Inbound;
 
 /**
- * Reconhece mensagens geradas por máquina — respostas automáticas de
- * férias, bounces (DSN), mailer-daemons e spam marcado pelo MTA — que
- * jamais devem virar post. Regras portadas do Discourse
- * (`Email::Receiver#is_auto_generated?`), do GitLab e da RFC 3834.
- * Devolve o motivo ou `null` quando a mensagem parece humana.
+ * Reconhece mensagens geradas por máquina (respostas de férias, bounces,
+ * mailer-daemon, spam marcado pelo MTA), que não devem virar post. Segue a
+ * RFC 3834. Devolve o motivo, ou `null` quando a mensagem parece humana.
  */
 class AutoReplyDetector
 {

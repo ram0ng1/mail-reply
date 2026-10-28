@@ -15,11 +15,8 @@ use Flarum\Api\Schema\Boolean;
 use Flarum\Post\Post;
 
 /**
- * Expõe o boolean somente-leitura `viaMailReply` no PostResource para o
- * badge do fórum. A fonte de verdade é a companion row `mailReplyMeta`,
- * eager-loaded pelos endpoints que serializam posts (ver extend.php) —
- * uma única query `whereIn` por resposta em vez de uma por post. Caminhos
- * não cobertos pelo eager-load caem no lazy-load da relação.
+ * Campo somente leitura `viaMailReply` usado pelo badge do fórum. A relação
+ * `mailReplyMeta` é carregada em lote no extend.php.
  */
 class ExposeViaMailReply
 {

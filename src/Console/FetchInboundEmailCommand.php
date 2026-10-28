@@ -22,10 +22,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 
 /**
- * Coleta mensagens não lidas da caixa de respostas via IMAP. Em produção
- * o ciclo é despachado automaticamente pelo `FetchInboundEmailsJob` dentro
- * do `queue:work` — este comando existe para diagnóstico manual ou para
- * operadores que preferem rodar via supervisor.
+ * Lê a caixa de respostas via IMAP. Com fila real o `FetchInboundEmailsJob`
+ * já faz isso; o comando serve ao agendador, a diagnósticos e a quem
+ * prefere rodá-lo sob um supervisor.
  *
  *     php flarum mail-reply:fetch --limit=10
  *     php flarum mail-reply:fetch --loop --interval=60
@@ -51,9 +50,8 @@ class FetchInboundEmailCommand extends AbstractCommand
     }
 
     /**
-     * Modo loop é pensado para supervisor (systemd, supervisord) rodar
-     * lado a lado com queue:work quando o operador não pode/quer configurar
-     * cron. Falhas individuais não derrubam o loop.
+     * Para rodar sob systemd/supervisord quando não há cron. Uma falha num
+     * ciclo não derruba o loop.
      */
     protected function fire(): int
     {
@@ -96,10 +94,8 @@ class FetchInboundEmailCommand extends AbstractCommand
     }
 
     /**
-     * Respeita o modo de entrega configurado no admin: se não for 'imap',
-     * o fetcher fica em standby — silencioso pra não poluir cron/loop com
-     * falsos negativos. Sem IMAP configurado também sai silencioso e com
-     * sucesso, senão o operador recebe e-mails do cron toda hora.
+     * Fora do modo IMAP, ou sem IMAP configurado, sai em silêncio e com
+     * sucesso: senão o cron mandaria e-mail ao operador a cada execução.
      */
     protected function runOnce(OutputInterface $output, int $limit, bool $verbose): int
     {

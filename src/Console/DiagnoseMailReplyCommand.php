@@ -24,11 +24,11 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * Diagnóstico ponta-a-ponta: imprime o endereço aliasado que seria gerado
- * para (usuário, tópico), faz o round-trip de parse e valida configuração.
+ * Mostra o alias gerado para (usuário, tópico), confere que ele volta
+ * intacto pelo parse e valida a configuração.
  *
  *     php flarum mail-reply:diagnose <userId> <discussionId>
- *     php flarum mail-reply:diagnose --address=ramon+u42d123-...@ramonguilherme.com.br
+ *     php flarum mail-reply:diagnose --address=inbox+u42d123-...@reply.exemplo.com
  */
 #[AsCommand(name: 'mail-reply:diagnose', description: 'Mint and parse a reply alias for a given user+discussion to verify the mail-reply setup.')]
 class DiagnoseMailReplyCommand extends AbstractCommand

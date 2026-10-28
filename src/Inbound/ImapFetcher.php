@@ -25,21 +25,10 @@ use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 use Webklex\PHPIMAP\IMAP;
 
 /**
- * Coleta respostas não lidas de uma caixa IMAP e as entrega ao
- * InboundProcessor no mesmo formato do webhook. `webklex/php-imap` é
- * dependência opcional (`suggest`), checada em tempo de execução.
- *
- * Usa só o protocolo de baixo nível (`UID SEARCH`, `BODY.PEEK[]`,
- * `UID STORE`): o `Query::get()` da biblioteca faz NOOP + STORE extras por
- * mensagem e estoura o timeout do worker em caixas com várias pendentes.
- *
- * Destino de cada mensagem após o ciclo:
- *   - processada ou recusada em definitivo → apagada (ou só lida, conforme
- *     `imap_delete_after`);
- *   - sem alias válido do fórum → só marcada como lida, nunca apagada;
- *   - falha transitória → fica não lida e volta no próximo ciclo; depois de
- *     MAX_ATTEMPTS, marcada como lida e mantida para inspeção manual;
- *   - maior que MAX_MESSAGE_BYTES → marcada como lida e mantida.
+ * Lê respostas não lidas de uma caixa IMAP e as entrega ao InboundProcessor.
+ * Usa os comandos de baixo nível do `webklex/php-imap` (opcional): o
+ * `Query::get()` faz NOOP e STORE extras por mensagem e estoura o timeout
+ * do worker em caixas cheias. Mensagens que não são do fórum nunca são apagadas.
  */
 class ImapFetcher
 {

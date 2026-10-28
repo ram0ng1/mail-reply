@@ -26,13 +26,9 @@ use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 
 /**
- * Dispara um MessageSending sintético para ver se o listener efetivamente
- * adiciona o header Reply-To com o alias. Útil para diagnosticar:
- *
- *   - "Os e-mails saem sem Reply-To" → roda isto. Se aqui aparece OK, o
- *     problema é queue worker rodando código antigo (reinicie).
- *   - "Tudo certo aqui mas no e-mail real continua sem Reply-To" → cache
- *     stale (php flarum cache:clear) ou listener desativado.
+ * Dispara um `MessageSending` sintético para conferir se o Reply-To com o
+ * alias é adicionado. Se aqui funciona e o e-mail real sai sem Reply-To, o
+ * worker da fila está com código antigo ou o cache precisa ser limpo.
  *
  *     php flarum mail-reply:simulate-send <userId> <discussionId>
  */
@@ -54,11 +50,9 @@ class SimulateSendCommand extends AbstractCommand
     }
 
     /**
-     * Usa `until()` (não `dispatch()`) para refletir EXATAMENTE o que o
-     * Laravel Mailer faz em `Mailer::shouldSendMessage()`. Isso também
-     * valida que o rebind de MutateEmail → CombinedEmailMutator está
-     * ativo: sem o rebind, o MutateEmail original do core resolveria e
-     * não adicionaria Reply-To, mesmo com nosso código deployado.
+     * Usa `until()`, como o `Mailer::shouldSendMessage()` do Laravel, para
+     * que o teste também falhe se o binding do `CombinedEmailMutator` não
+     * estiver ativo.
      */
     protected function fire(): int
     {

@@ -16,11 +16,8 @@ use Flarum\Post\Post;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Companion 1:1 do `posts` — extensão jamais ALTERa tabela do core. A
- * simples existência da row marca o post como criado via
- * reply por e-mail; não há colunas adicionais por enquanto, mas a tabela
- * está pronta pra carregar metadata futura (provider, signature
- * algorithm, timestamps de inbound) sem mexer no `posts`.
+ * Tabela 1:1 com `posts`, para não alterar uma tabela do core. A existência
+ * da linha marca o post como criado por resposta de e-mail.
  *
  * @property int $post_id
  */

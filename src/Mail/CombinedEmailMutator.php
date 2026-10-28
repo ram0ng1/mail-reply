@@ -22,15 +22,10 @@ use Ramon\MailReply\Token\TokenService;
 use Throwable;
 
 /**
- * Substitui o listener `Flarum\Mail\MutateEmail` via binding no container.
- *
- * Até o Flarum 2.0.1 o `MutateEmail::handle()` do core devolve `true`, e o
- * `events->until()` do Laravel Mailer para no primeiro valor não-null —
- * nenhum outro listener de `MessageSending` roda. No 2.0.2 o core passa a
- * devolver `void`. Por isso compomos em vez de herdar: chamamos o
- * mutator do core e depois injetamos o Reply-To, sem tipo de retorno —
- * a assinatura é compatível com todas as versões 2.0.x e não interrompe
- * os listeners de outras extensões.
+ * Substitui o listener `Flarum\Mail\MutateEmail` no container. Até o 2.0.1
+ * o `handle()` do core devolve `true`, e o `until()` do Mailer para no
+ * primeiro valor não nulo, calando os outros listeners de `MessageSending`.
+ * Por isso compomos: chamamos o core, adicionamos o Reply-To e não devolvemos nada.
  */
 class CombinedEmailMutator
 {
@@ -45,9 +40,8 @@ class CombinedEmailMutator
     ];
 
     /**
-     * Memoização por-request do flag `is_private` por discussion_id.
-     * Mailer dispara MessageSending múltiplas vezes em um batch de
-     * notificação; evitar query repetida pra mesma discussion.
+     * `is_private` por discussão, guardado durante o request: um lote de
+     * notificações dispara vários `MessageSending` para a mesma discussão.
      *
      * @var array<int, bool>
      */
@@ -81,13 +75,9 @@ class CombinedEmailMutator
     }
 
     /**
-     * Quando o blueprint carrega um post específico (mention, reply, post
-     * mention), embutimos o postId no alias para que o InboundProcessor
-     * monte o `@"author"#p{postId}` no início da resposta — replicando o
-     * "Responder ao post" do fórum.
-     *
-     * Algumas extensões passam blueprint/user como array ou outro tipo;
-     * nosso fluxo só faz sentido com objetos.
+     * Quando a notificação aponta para um post, o id vai no alias para a
+     * resposta citar esse post. Algumas extensões passam blueprint ou
+     * usuário que não são objetos; esses casos são ignorados.
      */
     protected function injectReplyTo(MessageSending $event): void
     {
@@ -144,14 +134,9 @@ class CombinedEmailMutator
     }
 
     /**
-     * Quebra agrupamento por thread no cliente (Outlook, Gmail web, Apple
-     * Mail). Esses clientes agrupam por Subject idêntico — se o usuário
-     * recebe 4 notificações sobre o mesmo tópico, todas com "Ramon
-     * mentioned you in 'X'", elas viram UMA conversa e o botão Responder
-     * usa o Reply-To do PRIMEIRO e-mail, não do mais recente. Adicionar
-     * `#{postId}` no final torna cada Subject único; cada e-mail vira sua
-     * própria conversa e o Reply-To respeitado é o do próprio e-mail
-     * aberto. Idempotente caso o evento seja re-enfileirado.
+     * Gmail, Outlook e Apple Mail agrupam e-mails de assunto igual e o botão
+     * Responder usa o Reply-To do primeiro da conversa. O sufixo `#{postId}`
+     * deixa cada assunto único. Idempotente se o evento for reenfileirado.
      */
     protected function ensureSubjectHasPostId(object $message, int $postId): void
     {
@@ -185,9 +170,8 @@ class CombinedEmailMutator
     }
 
     /**
-     * Tenta extrair discussion_id do blueprint. Usa `getSubject()` como
-     * fonte primária (canônica do Flarum), com fallback pra propriedade
-     * `$post` pública para blueprints atípicos.
+     * Usa `getSubject()` e, para blueprints que não seguem o padrão, a
+     * propriedade pública `$post`.
      */
     protected function extractDiscussionId(object $blueprint): ?int
     {
@@ -222,25 +206,9 @@ class CombinedEmailMutator
     }
 
     /**
-     * Extrai o postId que deve ser o "alvo" do quote-prepend — o post que
-     * o usuário está respondendo ao replicar essa notificação.
-     *
-     * Regras (ordem importa):
-     *
-     * 1. `PostMentionedBlueprint` (flarum/mentions) tem DUAS Post
-     *    properties: `$post` (post CITADO — o antigo) e `$reply` (post
-     *    NOVO de quem te citou). `getSubject()` retorna `$post` porque
-     *    semanticamente é o "subject" da notif, MAS pra nosso quote
-     *    queremos `$reply` — você está respondendo a quem te citou, não
-     *    ao seu próprio post antigo. Detectamos esse caso pela presença
-     *    das duas propriedades.
-     *
-     * 2. `UserMentionedBlueprint`, `GroupMentionedBlueprint` — só têm
-     *    `$post` (o post que menciona). `getSubject()` retorna `$post`
-     *    corretamente. Caímos no caso geral.
-     *
-     * 3. `NewPostBlueprint` (subscriptions) — `getSubject()` retorna
-     *    Discussion. Devolvemos null → alias sem `p{N}` → sem quote.
+     * Post que a resposta deve citar. No `PostMentionedBlueprint` o
+     * `getSubject()` é o post citado, mas quem responde fala com o autor de
+     * `$reply`. Quando o assunto é uma discussão, não há post a citar.
      */
     protected function extractPostId(object $blueprint): ?int
     {

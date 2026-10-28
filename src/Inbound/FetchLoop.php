@@ -73,12 +73,10 @@ class FetchLoop
     }
 
     /**
-     * Dispara uma cadeia nova quando nenhuma está viva. O heartbeat só é
-     * escrito pelo job: o bootstrap marca a própria tentativa numa chave à
-     * parte, senão uma fila sem worker pareceria viva para sempre e o
-     * `mail-reply:fetch --if-idle` do cron nunca rodaria. Lock atômico +
-     * double-check garantem um único bootstrap por janela. Devolve `true`
-     * quando despachou.
+     * Dispara uma cadeia nova quando nenhuma está viva e devolve `true` se
+     * despachou. Só o job escreve o heartbeat; o bootstrap usa outra chave,
+     * senão uma fila sem worker pareceria viva e o `--if-idle` nunca rodaria.
+     * Lock com nova checagem garante um único bootstrap por vez.
      */
     public function startIfStale(Dispatcher $bus): bool
     {

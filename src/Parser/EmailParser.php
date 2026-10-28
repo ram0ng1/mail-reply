@@ -14,32 +14,10 @@ namespace Ramon\MailReply\Parser;
 use EmailReplyParser\EmailReplyParser as WdEmailReplyParser;
 
 /**
- * Extrai a parte "nova" de um e-mail de resposta (a mensagem real que o
- * usuário escreveu), descartando assinaturas, histórico citado e
- * artefatos MIME que tenham escapado do Rfc822Parser.
- *
- * Estratégia em fases:
- *
- *   1. `cleanupMimeArtifacts` — remove linhas que são claramente
- *      cabeçalho MIME ou boundary (`--xxx`, `Content-Type:`,
- *      `Content-Transfer-Encoding:`, etc.). Decodifica quoted-printable
- *      se for marcado. Necessário quando o parser MIME pré-falhou e
- *      jogou body cru com headers literais.
- *
- *   2. `toPlainText` — se HTML, strip de tags preservando quebras.
- *
- *   3. `truncateAtQuoteMarker` — corta no cabeçalho de quote/forward,
- *      independente do idioma. CRÍTICO rodar ANTES da willdurand, que só
- *      entende inglês e devolveria o histórico inteiro intocado.
- *
- *   4. `parseReply` (willdurand) — remove signatures + quotes. Agressivo.
- *
- *   5. Se 4 zerou tudo, `stripQuotesOnly` (leve).
- *
- *   6. Se 5 também zerou, primeiras N linhas não-vazias do texto cru.
- *
- * Sempre retorna ALGO útil — nunca string vazia se o input tinha
- * conteúdo legível.
+ * Extrai o texto novo de uma resposta, sem assinatura, histórico citado nem
+ * restos de MIME. O corte por marcador de citação roda antes do
+ * willdurand/email-reply-parser, que só reconhece o formato em inglês. Se a
+ * limpeza apagar tudo, recua para estratégias mais leves.
  */
 class EmailParser
 {
@@ -81,20 +59,9 @@ class EmailParser
     }
 
     /**
-     * Remove artefatos MIME que possam ter chegado no body bruto quando
-     * o Rfc822Parser cai no fallback de "body cru" (multipart sem
-     * boundary detectado, parser falhou em isolar a parte text/plain).
-     *
-     * O que limpa:
-     *   - Linhas `--<boundary>` (incluindo `--<boundary>--` de fechamento)
-     *   - Headers MIME no início de uma "parte": Content-Type,
-     *     Content-Transfer-Encoding, Content-Disposition, MIME-Version,
-     *     charset, etc. — apenas quando aparecem isolados no meio do
-     *     texto (não como conteúdo legítimo).
-     *   - Aplica decode de quoted-printable se detectar marker.
-     *
-     * Duas passadas porque se na primeira ficou um header MIME isolado
-     * (linha em branco intercalada), a segunda pega.
+     * Remove boundaries e cabeçalhos MIME que sobram quando o Rfc822Parser
+     * não consegue isolar a parte de texto. Duas passadas porque uma linha
+     * em branco intercalada esconde um cabeçalho da primeira.
      */
     protected function cleanupMimeArtifacts(string $body): string
     {
@@ -118,10 +85,8 @@ class EmailParser
     }
 
     /**
-     * Uma passada de remoção de linhas MIME (boundary + headers). O
-     * regex de boundary `^--\S` é permissivo de propósito — qualquer
-     * linha começando com `--` seguido de não-espaço é candidata.
-     * Continuações indentadas de header também são puladas.
+     * O padrão de boundary `^--\S` é permissivo de propósito; continuações
+     * indentadas de cabeçalho também saem.
      */
     protected function stripMimeLines(string $body): string
     {
@@ -343,8 +308,8 @@ class EmailParser
     }
 
     /**
-     * Strip leve: para no primeiro "On … wrote:" / "Em … escreveu:" /
-     * "-----Original Message-----" e pula linhas com `>` no começo.
+     * Limpeza leve: corta na primeira linha de atribuição ou
+     * "Original Message" e descarta linhas citadas com `>`.
      */
     protected function stripQuotesOnly(string $text): string
     {
@@ -367,8 +332,7 @@ class EmailParser
     }
 
     /**
-     * Pega as primeiras N linhas não-vazias do texto. Usado como último
-     * fallback quando o parser/strip zera tudo.
+     * Último recurso quando as outras limpezas apagam tudo.
      */
     protected function firstNonEmptyLines(string $text, int $maxLines): string
     {
