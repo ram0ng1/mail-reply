@@ -10,7 +10,7 @@ on:
       - main
   workflow_dispatch:
 
-# §35.13 C1 — default-deny do GITHUB_TOKEN.
+# Nega tudo ao GITHUB_TOKEN por padrão; cada job declara o que precisa.
 permissions: {}
 
 concurrency:
@@ -44,7 +44,7 @@ jobs:
             p/owasp-top-ten
             p/secrets
             p/javascript
-          # Via env (não interpolado no script) — §35.16. Vazio em dispatch
+          # Via env (não interpolado no script). Vazio em dispatch
           # manual: aí o scan cobre o repositório inteiro.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         # --baseline-commit faz o Semgrep reportar só o que NÃO existia no commit

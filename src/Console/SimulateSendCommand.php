@@ -1,7 +1,17 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Console;
 
+use Flarum\Console\AbstractCommand;
 use Flarum\Discussion\Discussion;
 use Flarum\Post\CommentPost;
 use Flarum\Settings\SettingsRepositoryInterface;
@@ -12,24 +22,18 @@ use Ramon\MailReply\Mail\ReplyAddressConfig;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
-use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 
 /**
- * Dispara um MessageSending sintético para ver se o listener efetivamente
- * adiciona o header Reply-To com o alias. Útil para diagnosticar:
- *
- *   - "Os e-mails saem sem Reply-To" → roda isto. Se aqui aparece OK, o
- *     problema é queue worker rodando código antigo (reinicie).
- *   - "Tudo certo aqui mas no e-mail real continua sem Reply-To" → cache
- *     stale (php flarum cache:clear) ou listener desativado.
+ * Dispara um `MessageSending` sintético para conferir se o Reply-To com o
+ * alias é adicionado. Se aqui funciona e o e-mail real sai sem Reply-To, o
+ * worker da fila está com código antigo ou o cache precisa ser limpo.
  *
  *     php flarum mail-reply:simulate-send <userId> <discussionId>
  */
 #[AsCommand(name: 'mail-reply:simulate-send', description: 'Synthesize a notification email and dispatch MessageSending to verify Reply-To injection end-to-end.')]
-class SimulateSendCommand extends Command
+class SimulateSendCommand extends AbstractCommand
 {
     public function __construct(
         protected Dispatcher $events,
@@ -46,14 +50,14 @@ class SimulateSendCommand extends Command
     }
 
     /**
-     * Usa `until()` (não `dispatch()`) para refletir EXATAMENTE o que o
-     * Laravel Mailer faz em `Mailer::shouldSendMessage()`. Isso também
-     * valida que o rebind de MutateEmail → CombinedEmailMutator está
-     * ativo: sem o rebind, o MutateEmail original do core resolveria e
-     * não adicionaria Reply-To, mesmo com nosso código deployado.
+     * Usa `until()`, como o `Mailer::shouldSendMessage()` do Laravel, para
+     * que o teste também falhe se o binding do `CombinedEmailMutator` não
+     * estiver ativo.
      */
-    protected function execute(InputInterface $input, OutputInterface $output): int
+    protected function fire(): int
     {
+        [$input, $output] = [$this->input, $this->output];
+
         $userId = (int) $input->getArgument('user');
         $discussionId = (int) $input->getArgument('discussion');
 

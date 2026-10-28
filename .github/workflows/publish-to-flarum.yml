@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Tag da release (ex: 2.0.1)'
+        description: 'Tag da release (ex: 2.0.3)'
         required: true
       release_body:
         description: 'Corpo/descrição da release'
@@ -17,7 +17,7 @@ on:
         required: false
         default: ''
 
-# §35.13 C1 — default-deny do GITHUB_TOKEN. Esse workflow só chama API externa.
+# Nega tudo ao GITHUB_TOKEN por padrão; cada job declara o que precisa.
 permissions: {}
 
 concurrency:
@@ -28,10 +28,8 @@ jobs:
   publish_to_flarum:
     name: Publicar no Fórum
     runs-on: ubuntu-latest
-    # Só chama a API do fórum; nenhum escopo do GITHUB_TOKEN é necessário.
-    permissions: {}
     steps:
-      # §35.13 I3 — auditar egress. Esse job toca em FLARUM_API_KEY,
+      # Audita egress. Esse job toca em FLARUM_API_KEY,
       # então harden-runner é especialmente importante aqui.
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920  # v2.20.0
@@ -58,6 +56,8 @@ jobs:
           RELEASE_URL: ${{ github.event.release.html_url || inputs.release_url }}
         run: |
           VERSION="${RELEASE_TAG#v}"
+          # Só o pt-BR: as notas em inglês (depois do marcador) são para o discuss.
+          RELEASE_BODY="${RELEASE_BODY%%<!-- en -->*}"
 
           PAYLOAD=$(jq -n \
             --arg tag "$RELEASE_TAG" \

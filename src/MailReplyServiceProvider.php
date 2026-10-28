@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply;
 
 use Flarum\Foundation\AbstractServiceProvider;
@@ -7,10 +16,12 @@ use Flarum\Mail\MutateEmail;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Database\ConnectionInterface;
 use Psr\Log\LoggerInterface;
 use Ramon\MailReply\Inbound\FetchLoop;
 use Ramon\MailReply\Inbound\ImapFetcher;
 use Ramon\MailReply\Mail\CombinedEmailMutator;
+use Ramon\MailReply\Support\CacheLock;
 use Throwable;
 
 /**
@@ -61,14 +72,19 @@ class MailReplyServiceProvider extends AbstractServiceProvider
             return;
         }
 
-        $lock = $this->container->make(Repository::class)->lock(self::WEBHOOK_SECRET_LOCK_KEY, 5);
+        $lock = CacheLock::make($this->container->make(Repository::class), self::WEBHOOK_SECRET_LOCK_KEY, 5);
 
         if (! $lock->get()) {
             return;
         }
 
         try {
-            if ((string) $settings->get('ramon-mail-reply.webhook_secret') !== '') {
+            // Direto do banco: a cópia em memória não vê o que outro
+            // processo acabou de gravar.
+            $stored = $this->container->make(ConnectionInterface::class)
+                ->table('settings')->where('key', 'ramon-mail-reply.webhook_secret')->value('value');
+
+            if ((string) $stored !== '') {
                 return;
             }
 

@@ -3,7 +3,7 @@ import type Mithril from 'mithril';
 import Icon from 'flarum/common/components/Icon';
 import AdminCard from './AdminCard';
 import StatusState from '../utils/StatusState';
-import { onSettingSaved } from '../utils/settings';
+import { onSettingSaved, snapshotSettings } from '../utils/settings';
 import { t, ts } from '../utils/trans';
 import { CARDS, cardVisible, GROUPS, groupVisible, type CardDef, type GroupKey } from '../cards';
 
@@ -48,6 +48,7 @@ export default class SettingsPanel extends Component {
 
   oninit(vnode: Mithril.Vnode<ComponentAttrs, this>) {
     super.oninit(vnode);
+    snapshotSettings();
     onSettingSaved(() => this.status.reloadSoon());
     this.status.load();
   }

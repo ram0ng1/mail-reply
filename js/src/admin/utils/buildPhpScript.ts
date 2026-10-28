@@ -15,7 +15,8 @@ export default function buildPhpScript(apiUrl: string, secret: string): string {
 <?php
 /**
  * Mail Reply — inbound forwarder for Flarum.
- * Save as /usr/local/bin/forward-to-flarum.php, chmod 755, and create a
+ * Save as /usr/local/bin/forward-to-flarum.php, chmod 700 and chown it to the
+ * user the mail server runs the pipe as (it holds the webhook secret), then create a
  * Pipe forwarder in DirectAdmin/cPanel: |/usr/local/bin/php /usr/local/bin/forward-to-flarum.php
  * (check the PHP path with "which php"). DirectAdmin only accepts pipe
  * destinations when directadmin.conf has allow_forwarder_pipe=1; on cPanel use

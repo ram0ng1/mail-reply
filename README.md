@@ -83,7 +83,8 @@ X-Mail-Reply-Token: <webhook secret from the admin panel>
 Accepted bodies: raw RFC 822 (`Content-Type: message/rfc822`), Postmark JSON,
 Mailgun form posts, or canonical JSON `{to, from, subject, body_text,
 body_html}`. The PHP pipe script shown in the admin panel is the fastest path
-(about one second from delivery to post). On DirectAdmin, pipe forwarders
+(about one second from delivery to post). Install the script with `chmod 700`, owned by the user the mail server runs
+the pipe as (it contains the webhook secret). On DirectAdmin, pipe forwarders
 (`|/usr/local/bin/php /path/forward-to-flarum.php`) are only accepted when
 `allow_forwarder_pipe=1` is set in `directadmin.conf`; on cPanel use
 *Forwarders → Pipe to a Program*. Mailgun Routes can be authenticated with the account's webhook
@@ -102,13 +103,37 @@ unreadable payload, `500` could not queue (the provider should retry).
 
 ## Compatibility
 
-Flarum 2.0.x (including 2.0.2), MySQL/MariaDB, PostgreSQL and SQLite.
+Flarum 2.0.x, PHP 8.3–8.5, MySQL/MariaDB, PostgreSQL and SQLite. Tested end
+to end on simulated cPanel, DirectAdmin, Plesk and plain VPS hosts (see
+below), and with the default theme, [Canela](https://github.com/ram0ng1/canela)
+and [Avocado](https://github.com/ram0ng1/avocado).
+
+Secrets (HMAC key, IMAP password, Mailgun signing key) are encrypted with a
+random key kept in `storage/mail-reply/secret.key`; keep that file in your
+backups together with the database. Values written by older versions are
+still read and re-encrypted on first use.
+
+## Hosting matrix
+
+`.github/workflows/hosting-matrix.yml` runs 16 cells — cPanel (Exim),
+DirectAdmin (Exim), Plesk (Postfix) and VPS (Postfix) × pipe script, IMAP
+through cron, IMAP through `queue:work` (fof/redis) and provider webhooks —
+with real Exim/Postfix and Dovecot servers, the panel's PHP restrictions
+(`disable_functions`, `open_basedir`) and replies written by Gmail, Outlook,
+Apple Mail and Thunderbird. Run it locally with Docker:
+
+```bash
+FORUM_TEMPLATE=/path/to/a/flarum/install tests/hosting/local.sh
+```
 
 ## Development
 
 ```bash
-composer install && composer test && composer analyse
-cd js && npm ci && npm run check-typings && npm run build
+composer install
+composer test:setup        # once, creates the integration test database
+composer test              # unit + integration (flarum/testing)
+composer analyse:phpstan
+cd js && npm ci && npm run format-check && npm run check-typings && npm run build
 ```
 
 CI/CD lives in `.github/workflows/`; configure the `FLARUM_API_KEY` secret and

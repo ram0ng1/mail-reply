@@ -16,6 +16,7 @@ ramon-mail-reply:
       webhook_secret_label: Segredo do webhook
       webhook_secret_help: "Header X-Mail-Reply-Token exigido em POST /api/mail-reply/inbound. Gere com: openssl rand -hex 32"
       secret_placeholder: "[configure o segredo acima]"
+      secret_saved_placeholder: "Segredo salvo — digite para trocar"
       providers_help: "Configure o provedor para fazer POST direto no endpoint — sem script."
       providers_url_label: "URL do webhook:"
       providers_header_label: "Header obrigatório:"
@@ -95,6 +96,7 @@ ramon-mail-reply:
       check_imap_library: "webklex/php-imap instalado"
       check_imap: "Servidor e login IMAP"
       check_webhook_auth: "Segredo do webhook ou chave do Mailgun"
+      check_secrets: "Segredos salvos legíveis (digite de novo a chave HMAC, a senha IMAP ou a chave do Mailgun)"
       status_refresh: "Atualizar"
       status_error: "Não foi possível carregar o status do recebimento."
       status_retry: "Tentar de novo"
@@ -117,12 +119,14 @@ ramon-mail-reply:
       reason_invalid_address: "Alias ausente, malformado ou com assinatura inválida"
       reason_unknown_user: "O alias aponta para um usuário que não existe mais"
       reason_sender_mismatch: "Enviada de um endereço diferente do e-mail da conta"
+      reason_sender_unauthenticated: "O servidor que recebeu acusou falha de DMARC (From forjado)"
       reason_discussion_unavailable: "Discussão apagada ou não mais visível para o usuário"
       reason_private_discussion: "A discussão não é pública"
       reason_not_allowed: "O usuário não pode mais responder na discussão"
       reason_rate_limited: "Limite de respostas por hora atingido"
       reason_empty_body: "Nenhum texto novo acima da mensagem citada"
       reason_too_long: "Maior que o tamanho máximo de um post"
+      reason_validation: "Recusada pelas regras de conteúdo do fórum (outra extensão)"
       reason_duplicate: "A mesma mensagem já foi recebida"
       reason_auto_submitted: "Mensagem automática (header Auto-Submitted)"
       reason_auto_reply_header: "Header de resposta automática (ausência, férias)"
@@ -163,6 +167,7 @@ ramon-mail-reply:
       webhook_script_needs_secret: "Defina ou gere o segredo do webhook para ter um script pronto para uso."
       webhook_script_view: "Ver script"
       webhook_install_step1: "Entre por SSH no servidor de e-mail e cole o script em"
+      webhook_install_step2: "para o usuário que o servidor de e-mail usa no pipe (a conta no cPanel, o dono do domínio no DirectAdmin). O script guarda o segredo do webhook: não deixe outras contas lerem."
       webhook_install_step3: "No DirectAdmin, Forwarders → reply@dominio → Pipe:"
       webhook_install_step4: "Teste mandando uma menção. Acompanhe <log>/var/log/exim/mainlog</log> e espere <expect>T=virtual_address_pipe ... Completed</expect>."
   email:
@@ -175,6 +180,7 @@ ramon-mail-reply:
       reason_rate_limited: Você atingiu o limite de respostas por e-mail por hora. Aguarde um pouco ou responda pelo fórum.
       reason_empty_body: Não encontramos texto novo acima da mensagem citada.
       reason_too_long: A resposta passou do tamanho máximo de um post.
+      reason_validation: "As regras de conteúdo do fórum recusaram a resposta."
       footer: "Assunto original: {subject}. Você pode responder diretamente pelo fórum."
   forum:
     via_mail: via e-mail

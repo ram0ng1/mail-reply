@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Api\Controller;
 
 use Flarum\Foundation\ErrorHandling\LogReporter;
@@ -17,20 +26,10 @@ use Ramon\MailReply\Service\SecretBox;
 use Throwable;
 
 /**
- * Endpoint público de inbound. Recebe respostas por e-mail vindas de:
- *
- *   1. Scripts pipe locais no MTA — RFC 822 cru via `Content-Type:
- *      message/rfc822` (caminho recomendado quando o admin não pode/quer
- *      ter o Flarum lendo IMAP direto).
- *   2. Provedores como Mailgun/Postmark — form-data ou JSON canônico.
- *
- * Autenticação: header `X-Mail-Reply-Token` com segredo configurado no
- * admin, ou assinatura do Mailgun quando a signing key está salva. CSRF é isento via `Extend\Csrf::exemptRoute()` no extend.php
- * (caller é externo, não tem session/CSRF token).
- *
- * Fora do modo `webhook` o endpoint responde 404 — evita dupla entrega
- * quando IMAP e webhook foram configurados juntos. O processamento sai
- * para o `ProcessInboundEmailJob`; o controller só normaliza e despacha.
+ * Webhook público que recebe respostas de scripts pipe no MTA (RFC 822 cru)
+ * ou de provedores como Mailgun e Postmark. Só normaliza o payload e
+ * despacha o `ProcessInboundEmailJob`. Fora do modo `webhook` responde 404,
+ * para não duplicar entregas quando o IMAP também está configurado.
  */
 class InboundEmailController implements RequestHandlerInterface
 {
@@ -53,10 +52,8 @@ class InboundEmailController implements RequestHandlerInterface
     public const MAILGUN_MAX_SKEW_SECONDS = 300;
 
     /**
-     * Detalhes de falha (classe, mensagem) vão só para o log: o caller é
-     * externo e não autenticado até o hash_equals. O processamento sai do
-     * request via `dispatch()` — em fila real responde na hora; no driver
-     * `sync` o job roda inline e captura as próprias exceções.
+     * Detalhes de falha vão só para o log: quem chama é externo e ainda não
+     * foi autenticado. No driver `sync` o job roda dentro do request.
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
@@ -152,14 +149,8 @@ class InboundEmailController implements RequestHandlerInterface
     }
 
     /**
-     * Aceita três formas de payload e devolve o formato canônico do
-     * InboundProcessor:
-     *
-     *   1. `message/rfc822` (ou corpo com cara de headers) — RFC 822 cru,
-     *      caminho dos scripts pipe e do Cloudflare Email Workers;
-     *   2. JSON (Postmark ou canônico `{to, from, subject, body_text, ...}`);
-     *   3. form-data do Mailgun (`recipient`, `body-plain`, `stripped-text`,
-     *      `message-headers`).
+     * Converte RFC 822 cru, JSON (Postmark ou canônico) ou form-data do
+     * Mailgun para o formato do InboundProcessor.
      *
      * @return array{to: array<int,string>, from: string, subject: string, body_text: string, body_html: string, stripped_text: string, message_id: string, headers: array<string, array<int,string>>}
      */
@@ -194,7 +185,9 @@ class InboundEmailController implements RequestHandlerInterface
             $recipients[] = $address;
         }
 
-        $from = (string) ($params['sender'] ?? $params['From'] ?? $params['from'] ?? '');
+        // O From do cabeçalho vem antes do `sender` do Mailgun, que é o
+        // envelope (reescrito por SRS/VERP em encaminhamentos).
+        $from = (string) ($params['from'] ?? $params['From'] ?? $params['sender'] ?? '');
 
         return [
             'to'            => array_values(array_unique(array_filter(array_map('trim', $recipients)))),
@@ -247,7 +240,7 @@ class InboundEmailController implements RequestHandlerInterface
     }
 
     /**
-     * Heurística para detectar RFC 822 cru sem Content-Type adequado.
+     * Detecta RFC 822 cru enviado sem o Content-Type certo.
      */
     protected function looksLikeRfc822(string $raw, string $contentType): bool
     {

@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Inbound;
 
 /**
@@ -33,7 +42,7 @@ class RecipientExtractor
         }
 
         foreach ((array) ($headers['received'] ?? []) as $value) {
-            if (preg_match('/\bfor\s+<?([^\s<>;@]+@[^\s<>;]+?)>?\s*(?:;|$)/i', (string) $value, $m)) {
+            if (preg_match('/\bfor\s+<?([^\s<>;@]+@[^\s<>;]+?)>?\s*(?:;|$)/i', substr((string) $value, 0, 2048), $m)) {
                 $out[] = $m[1];
             }
         }
@@ -42,19 +51,36 @@ class RecipientExtractor
     }
 
     /**
-     * Divide uma lista de endereços respeitando vírgulas dentro de aspas.
+     * Teto de destinatários por cabeçalho: uma resposta legítima tem poucos,
+     * e o resto não pode custar CPU a quem lê a caixa.
+     */
+    public const MAX_ADDRESSES_PER_HEADER = 100;
+
+    /**
+     * Divide uma lista de endereços nas vírgulas fora de aspas, numa só
+     * passada. O cabeçalho vem de qualquer remetente antes de o alias ser
+     * validado, então o custo tem de ser linear no tamanho.
      *
      * @return array<int, string>
      */
     public static function splitAddresses(string $value): array
     {
-        $parts = preg_split('/,\s*(?=(?:[^"]*"[^"]*")*[^"]*$)/', $value) ?: [];
         $out = [];
+        $start = 0;
+        $quoted = false;
+        $length = strlen($value);
 
-        foreach ($parts as $part) {
-            $address = self::firstAddress($part);
-            if ($address !== '') {
-                $out[] = $address;
+        for ($i = 0; $i <= $length && count($out) < self::MAX_ADDRESSES_PER_HEADER; $i++) {
+            $char = $i < $length ? $value[$i] : ',';
+
+            if ($char === '"' && ($i === 0 || $value[$i - 1] !== '\\')) {
+                $quoted = ! $quoted;
+            } elseif ($char === ',' && (! $quoted || $i === $length)) {
+                $address = self::firstAddress(substr($value, $start, $i - $start));
+                if ($address !== '') {
+                    $out[] = $address;
+                }
+                $start = $i + 1;
             }
         }
 
@@ -63,6 +89,10 @@ class RecipientExtractor
 
     public static function firstAddress(string $value): string
     {
+        // Um endereço com nome de exibição cabe com folga; o corte mantém as
+        // regex abaixo baratas com entrada hostil.
+        $value = substr($value, 0, 1024);
+
         if (preg_match('/<([^<>\s]+@[^<>\s]+)>/', $value, $m)) {
             return trim($m[1]);
         }

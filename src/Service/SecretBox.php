@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Service;
 
 use Flarum\Foundation\Config;
@@ -7,29 +16,28 @@ use Flarum\Foundation\Paths;
 use RuntimeException;
 
 /**
- * Envelope-encryption para segredos persistidos na tabela `settings`:
- * chave HMAC do mail-reply e senha IMAP. Usa AEAD XChaCha20-Poly1305 com
- * chave de 32 bytes derivada via SHA-256 de `config.url` + `paths.base`
- * — par estável por instalação, sem dependência de .env.
+ * Cifra os segredos guardados na tabela `settings` (chave HMAC dos aliases,
+ * senha IMAP, signing key do Mailgun) com XChaCha20-Poly1305.
  *
- * Formato do ciphertext no banco:
+ *     mp2:base64url(nonce(24) || ciphertext+tag)
  *
- *     mp1:base64url(nonce(24) || ciphertext+tag)
+ * A chave do `mp2` é aleatória e fica em `storage/mail-reply/secret.key`,
+ * fora do banco: um dump da tabela não basta para abrir os valores, e mudar
+ * a URL (http → https, www) ou a pasta do fórum não os invalida. Sem como
+ * criar o arquivo (storage só de leitura), cai no `mp1`, cuja chave deriva
+ * da URL e da pasta — o formato das versões anteriores, que continua
+ * legível e é migrado pelos leitores (`needsMigration()`).
  *
- * O prefixo `mp1:` (mail-reply protect v1) sinaliza o formato e permite:
- *
- *   - Detectar valores ainda em plaintext (legado) — `decode()` devolve
- *     a string crua para que o reader trate como migração lazy.
- *   - Migrar para `mp2:` no futuro sem quebrar valores existentes.
- *
- * Refuse-to-persist: `encode()` lança `RuntimeException` se o host não
- * tem `sodium_crypto_aead_xchacha20poly1305_ietf_*`. Plaintext fallback é
- * exatamente o bug que esta classe evita — preferimos quebrar o admin
- * (com mensagem clara) a degradar silenciosamente.
+ * Sem libsodium nada é gravado: texto puro seria justamente o que esta
+ * classe evita.
  */
 class SecretBox
 {
-    private const PREFIX = 'mp1:';
+    private const PREFIX = 'mp2:';
+    private const LEGACY_PREFIX = 'mp1:';
+    private const KEY_FILE = 'mail-reply/secret.key';
+
+    protected ?string $fileKey = null;
 
     public function __construct(
         protected Config $config,
@@ -37,19 +45,12 @@ class SecretBox
     ) {
     }
 
-    /**
-     * Indica se o host suporta a primitiva. Útil para o admin checar antes
-     * de ativar features que dependem de persistir segredos cifrados.
-     */
     public static function isSupported(): bool
     {
         return function_exists('sodium_crypto_aead_xchacha20poly1305_ietf_encrypt')
             && defined('SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES');
     }
 
-    /**
-     * Cifra `$plaintext`. Retorna sempre uma string prefixada com `mp1:`.
-     */
     public function encode(string $plaintext): string
     {
         if (! self::isSupported()) {
@@ -59,87 +60,112 @@ class SecretBox
             );
         }
 
-        $key = $this->key();
-        $nonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
-        $ciphertext = sodium_crypto_aead_xchacha20poly1305_ietf_encrypt(
-            $plaintext,
-            '',
-            $nonce,
-            $key,
-        );
+        $key = $this->fileKey(true);
+        [$prefix, $key] = $key !== null ? [self::PREFIX, $key] : [self::LEGACY_PREFIX, $this->legacyKey()];
 
-        return self::PREFIX.$this->b64UrlEncode($nonce.$ciphertext);
+        $nonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
+        $ciphertext = sodium_crypto_aead_xchacha20poly1305_ietf_encrypt($plaintext, '', $nonce, $key);
+
+        return $prefix.$this->b64UrlEncode($nonce.$ciphertext);
     }
 
     /**
-     * Decifra um valor. Aceita três entradas:
-     *
-     *   - String com prefixo `mp1:` → decifra normalmente.
-     *   - String sem prefixo → trata como plaintext legado e devolve
-     *     intacta (caller é responsável por re-escrever cifrada).
-     *   - String vazia → devolve vazia.
-     *
-     * Lança `RuntimeException` se a primitiva não está disponível, o
-     * payload está truncado ou a verificação AEAD falhou (chave errada,
-     * adulteração, payload de outra instalação).
+     * Valor sem prefixo é texto puro legado e volta intacto; quem lê é que
+     * regrava cifrado. Lança `RuntimeException` sem libsodium, com payload
+     * truncado ou quando a verificação AEAD falha (chave errada, adulteração).
      */
     public function decode(string $value): string
     {
-        if ($value === '') {
-            return '';
-        }
-
-        if (! str_starts_with($value, self::PREFIX)) {
+        if ($value === '' || ! self::isEncrypted($value)) {
             return $value;
         }
 
         if (! self::isSupported()) {
-            throw new RuntimeException(
-                'Encrypted setting found but libsodium AEAD is not available on this host.'
-            );
+            throw new RuntimeException('Encrypted setting found but libsodium AEAD is not available on this host.');
         }
 
-        $payload = $this->b64UrlDecode(substr($value, strlen(self::PREFIX)));
+        $legacy = str_starts_with($value, self::LEGACY_PREFIX);
+        $key = $legacy ? $this->legacyKey() : $this->fileKey(false);
+
+        if ($key === null) {
+            throw new RuntimeException('The mail-reply key file (storage/'.self::KEY_FILE.') is missing; re-enter the secrets in the admin panel.');
+        }
+
+        $payload = $this->b64UrlDecode(substr($value, 4));
         $nlen = SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES;
 
         if (strlen($payload) < $nlen + SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES) {
             throw new RuntimeException('Encrypted mail-reply secret is truncated.');
         }
 
-        $nonce = substr($payload, 0, $nlen);
-        $ciphertext = substr($payload, $nlen);
-
-        $plaintext = sodium_crypto_aead_xchacha20poly1305_ietf_decrypt(
-            $ciphertext,
-            '',
-            $nonce,
-            $this->key(),
-        );
+        $plaintext = sodium_crypto_aead_xchacha20poly1305_ietf_decrypt(substr($payload, $nlen), '', substr($payload, 0, $nlen), $key);
 
         if ($plaintext === false) {
-            throw new RuntimeException(
-                'Failed to decrypt mail-reply secret — wrong derived key or tampered payload.'
-            );
+            throw new RuntimeException('Failed to decrypt mail-reply secret — wrong key or tampered payload.');
         }
 
         return $plaintext;
     }
 
-    /**
-     * `true` se o valor já está cifrado neste formato.
-     */
     public static function isEncrypted(string $value): bool
     {
-        return str_starts_with($value, self::PREFIX);
+        return str_starts_with($value, self::PREFIX) || str_starts_with($value, self::LEGACY_PREFIX);
     }
 
     /**
-     * Chave AEAD de 32 bytes derivada de inputs estáveis da instalação.
-     * Mesma chave em CLI e HTTP; muda apenas se o operador alterar
-     * `url`/`paths.base` no config.php — caso em que as notificações
-     * antigas também precisam ser regeradas.
+     * Texto puro ou `mp1`: o leitor deve regravar com `encode()`.
      */
-    protected function key(): string
+    public function needsMigration(string $value): bool
+    {
+        if ($value === '' || ! self::isSupported()) {
+            return false;
+        }
+
+        return ! str_starts_with($value, self::PREFIX) && $this->fileKey(true) !== null;
+    }
+
+    /**
+     * Lê a chave do arquivo ou, com `$create`, gera uma nova. O `x` do
+     * fopen garante que dois processos concorrentes não gravem chaves
+     * diferentes: o segundo perde a corrida e lê a do primeiro.
+     */
+    protected function fileKey(bool $create): ?string
+    {
+        if ($this->fileKey !== null) {
+            return $this->fileKey;
+        }
+
+        $path = rtrim((string) $this->paths->storage, '/').'/'.self::KEY_FILE;
+
+        if (! is_file($path) && $create) {
+            $dir = dirname($path);
+
+            if (! is_dir($dir)) {
+                @mkdir($dir, 0700, true);
+            }
+
+            $handle = @fopen($path, 'x');
+
+            if ($handle !== false) {
+                fwrite($handle, bin2hex(random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES)));
+                fclose($handle);
+                @chmod($path, 0600);
+            }
+        }
+
+        $hex = is_file($path) ? trim((string) @file_get_contents($path)) : ''; /* caminho fixo em storage, não é URL; nosemgrep: flarum-v2-server-side-fetch */
+
+        if (strlen($hex) !== 2 * SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES || ! ctype_xdigit($hex)) {
+            return null;
+        }
+
+        return $this->fileKey = (string) hex2bin($hex);
+    }
+
+    /**
+     * Chave do `mp1`: muda junto com `url` ou `paths.base` do config.php.
+     */
+    protected function legacyKey(): string
     {
         $url = (string) ($this->config['url'] ?? '');
         $base = (string) $this->paths->base;

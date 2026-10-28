@@ -1,0 +1,33 @@
+MIME-Version: 1.0
+Date: {{DATE}}
+Message-ID: <{{MESSAGE_ID}}>
+Subject: Re: [Forum] {{TITLE}}
+From: Alice Souza <{{FROM}}>
+To: {{TO}}
+Content-Type: multipart/alternative; boundary="000000000000a1b2c3d4e5f6a7b8"
+
+--000000000000a1b2c3d4e5f6a7b8
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Valeu pela dica, funcionou aqui na hospedagem.
+
+Em ter., 28 de out. de 2026 =C3=A0s 15:00, F=C3=B3rum <noreply@forum.test>
+escreveu:
+
+> Bob respondeu na discuss=C3=A3o "{{TITLE}}":
+>
+> Teste a resposta por e-mail.
+>
+--000000000000a1b2c3d4e5f6a7b8
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr">Valeu pela dica, funcionou aqui na hospedagem.</div><br><d=
+iv class=3D"gmail_quote"><div dir=3D"ltr" class=3D"gmail_attr">Em ter., 28 =
+de out. de 2026 =C3=A0s 15:00, F=C3=B3rum &lt;<a href=3D"mailto:noreply@for=
+um.test">noreply@forum.test</a>&gt; escreveu:<br></div><blockquote class=3D=
+"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex">Bob respondeu na discuss=
+=C3=A3o.<br>Teste a resposta por e-mail.</blockquote></div>
+
+--000000000000a1b2c3d4e5f6a7b8--

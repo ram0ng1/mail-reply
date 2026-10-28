@@ -1,24 +1,38 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Job;
 
-use Flarum\Foundation\ErrorHandling\LogReporter;
 use Flarum\Queue\AbstractJob;
 use Psr\Log\LoggerInterface;
 use Ramon\MailReply\Inbound\InboundProcessor;
 use Ramon\MailReply\Inbound\InboundRejected;
-use Throwable;
 
 /**
  * Processa um payload de webhook fora da janela de resposta do provedor.
- * Em fila real o controller responde na hora; no driver `sync` roda
- * inline. Recusas definitivas viram log `info`; falhas inesperadas são
- * reportadas e, em fila real, re-tentadas uma vez.
+ * Recusas definitivas viram log `info`. Qualquer outra falha sobe: na fila
+ * real o worker tenta de novo; no driver `sync` o controller responde 500 e
+ * o MTA reentrega (o script de pipe sai com TEMPFAIL).
  */
 class ProcessInboundEmailJob extends AbstractJob
 {
     public int $tries = 2;
-    public int $timeout = 120;
+
+    public int $backoff = 30;
+
+    /**
+     * Abaixo do `retry_after` de 60s das filas (fof/redis, database): o job
+     * nunca é reentregue enquanto ainda roda.
+     */
+    public int $timeout = 55;
 
     /**
      * @param array<string, mixed> $payload
@@ -28,7 +42,7 @@ class ProcessInboundEmailJob extends AbstractJob
     ) {
     }
 
-    public function handle(InboundProcessor $processor, LogReporter $log, LoggerInterface $logger): void
+    public function handle(InboundProcessor $processor, LoggerInterface $logger): void
     {
         try {
             $post = $processor->process($this->payload);
@@ -40,12 +54,6 @@ class ProcessInboundEmailJob extends AbstractJob
         } catch (InboundRejected $e) {
             if (! $e->silent) {
                 $logger->info('[mail-reply] inbound message rejected', ['reason' => $e->reason]);
-            }
-        } catch (Throwable $e) {
-            $log->report($e);
-
-            if ($this->job !== null && $this->attempts() < $this->tries) {
-                $this->release(30);
             }
         }
     }

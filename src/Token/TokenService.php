@@ -1,38 +1,32 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Token;
 
 use Flarum\Settings\SettingsRepositoryInterface;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Database\ConnectionInterface;
 use Psr\Log\LoggerInterface;
 use Ramon\MailReply\Mail\ReplyAddressConfig;
 use Ramon\MailReply\Service\SecretBox;
+use Ramon\MailReply\Support\CacheLock;
 use Throwable;
 
 /**
- * Token stateless: o alias do e-mail é puramente determinístico em
- * (user_id, discussion_id [, post_id]), assinado com HMAC. Não há tabela
- * de tokens nem estado por notificação — o identificador único do e-mail
- * é o próprio par/trio codificado no local part, validado por hash_equals
- * no inbound.
+ * Gera e valida aliases de resposta assinados com HMAC, sem estado no banco:
  *
- * Wire format do local part (post_id opcional):
+ *     {localPart}+u{userId}d{discussionId}[p{postId}]-{sig}
  *
- *     {localPart}+u{userId}d{discussionId}-{sig}             (sem post)
- *     {localPart}+u{userId}d{discussionId}p{postId}-{sig}    (com post)
- *
- * Exemplos:
- *     reply+u42d123-a1b2c3d4e5f60718@reply.forum.com
- *     reply+u42d123p987-9f0a1b2c3d4e5f6a@reply.forum.com
- *
- * O postId, quando presente, é o post que originou a notificação (post
- * que mencionou o usuário, post a que ele está inscrito etc.). Permite
- * que o InboundProcessor prepende `@"author"#p{postId}` no início da
- * resposta — replicando o comportamento de "Responder" do fórum.
- *
- * Reusabilidade: o alias é estável por (user, discussion[, post]) — o
- * mesmo e-mail de notificação pode ser respondido N vezes; cada resposta
- * vira um post.
+ * O alias é estável, então a mesma notificação pode ser respondida várias vezes.
  */
 class TokenService
 {
@@ -46,14 +40,10 @@ class TokenService
         protected Repository $cache,
         protected SecretBox $secretBox,
         protected LoggerInterface $logger,
+        protected ?ConnectionInterface $db = null,
     ) {
     }
 
-    /**
-     * Monta o endereço para o trio (usuário, tópico, post). post_id é
-     * opcional — quando informado, o alias inclui `p{postId}` e a sig
-     * cobre o trio inteiro.
-     */
     public function mintAddress(int $userId, int $discussionId, ?int $postId = null): ?string
     {
         $parts = $this->replyAddress->parts();
@@ -83,9 +73,7 @@ class TokenService
     }
 
     /**
-     * Faz parse de um endereço de inbound. Aceita as duas variantes
-     * (com ou sem `p{postId}`). Retorna null para tudo o que for
-     * inválido (prefixo errado, assinatura forjada, formato corrompido).
+     * Devolve null para prefixo errado, assinatura inválida ou formato corrompido.
      *
      * @return array{user_id: int, discussion_id: int, post_id: ?int}|null
      */
@@ -162,10 +150,8 @@ class TokenService
     }
 
     /**
-     * Assina o payload usando uma chave HMAC. Se o admin não configurou um
-     * segredo, geramos uma chave aleatória de 32 bytes na primeira chamada
-     * e persistimos em settings — mantém o binding estável entre processos
-     * e workers de fila sem depender de APP_KEY/.env.
+     * A chave é gerada na primeira chamada e guardada nas settings, estável
+     * entre processos sem depender de `.env`.
      */
     protected function sign(string $payload): string
     {
@@ -173,16 +159,8 @@ class TokenService
     }
 
     /**
-     * Resolve a chave HMAC. Sempre persistida cifrada via SecretBox em
-     * envelope AEAD. Aceita plaintext legado na leitura — quando
-     * encontrado, re-escreve cifrado para zerar o débito sem perder o
-     * binding dos aliases já emitidos.
-     *
-     * Geração inicial fica numa região crítica protegida por cache lock
-     * atômico de 5s; sem isso dois workers chegando ao mesmo tempo
-     * gerariam chaves diferentes e o segundo sobrescreveria a do primeiro,
-     * invalidando aliases já enviados. Dentro do lock fazemos double-check
-     * do setting.
+     * A geração fica sob lock: dois workers simultâneos gravariam chaves
+     * diferentes e a segunda invalidaria os aliases já enviados.
      */
     protected function resolveKey(): string
     {
@@ -192,12 +170,22 @@ class TokenService
             return $this->decryptOrMigrate($stored, 'secret');
         }
 
-        $lock = $this->cache->lock('mail-reply.secret_gen', 5);
+        $lock = CacheLock::make($this->cache, 'mail-reply.secret_gen', 5);
 
         try {
-            $lock->block(5);
+            try {
+                $lock->block(5);
+            } catch (LockTimeoutException $e) {
+                // Outro processo segurou o lock até o fim: a chave dele já
+                // deve estar no banco.
+                if (($stored = $this->storedSecret()) !== '') {
+                    return $this->decryptOrMigrate($stored, 'secret');
+                }
 
-            $stored = (string) $this->settings->get('ramon-mail-reply.secret');
+                throw $e;
+            }
+
+            $stored = $this->storedSecret();
 
             if ($stored !== '') {
                 return $this->decryptOrMigrate($stored, 'secret');
@@ -216,8 +204,21 @@ class TokenService
     }
 
     /**
-     * Decifra ou trata como plaintext legado. Quando legado, re-escreve
-     * cifrado lazily — o operador não precisa rodar comando de migração.
+     * Lê a chave direto do banco: o repositório de settings guarda tudo em
+     * memória no começo do processo e não veria a chave que outro worker
+     * acabou de gravar.
+     */
+    protected function storedSecret(): string
+    {
+        if ($this->db === null) {
+            return (string) $this->settings->get('ramon-mail-reply.secret');
+        }
+
+        return (string) $this->db->table('settings')->where('key', 'ramon-mail-reply.secret')->value('value');
+    }
+
+    /**
+     * Texto puro legado é regravado cifrado na leitura, sem comando de migração.
      */
     protected function decryptOrMigrate(string $stored, string $settingSuffix): string
     {
@@ -231,7 +232,7 @@ class TokenService
             throw $e;
         }
 
-        if (! SecretBox::isEncrypted($stored)) {
+        if ($this->secretBox->needsMigration($stored)) {
             try {
                 $this->settings->set('ramon-mail-reply.'.$settingSuffix, $this->secretBox->encode($plain));
                 $this->logger->info('[mail-reply] migrated plaintext secret to encrypted form', [

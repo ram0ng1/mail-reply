@@ -735,6 +735,15 @@
     background: var(--body-bg);
     word-break: break-all;
   }
+
+  // No celular o rótulo vai para a linha de cima: ao lado dele a URL e o
+  // header ficavam espremidos em poucos caracteres por linha.
+  @media @phone {
+    strong {
+      min-width: 0;
+      flex-basis: 100%;
+    }
+  }
 }
 
 .MailReplyAdmin-details {

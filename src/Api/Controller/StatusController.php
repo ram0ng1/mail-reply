@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Api\Controller;
 
 use Carbon\Carbon;
@@ -17,6 +26,8 @@ use Ramon\MailReply\Database\InboundEmail;
 use Ramon\MailReply\Inbound\FetchLoop;
 use Ramon\MailReply\Inbound\ImapFetcher;
 use Ramon\MailReply\Mail\ReplyAddressConfig;
+use Ramon\MailReply\Service\SecretBox;
+use Throwable;
 use Webklex\PHPIMAP\ClientManager;
 
 /**
@@ -33,6 +44,7 @@ class StatusController implements RequestHandlerInterface
         protected ReplyAddressConfig $replyAddress,
         protected FetchLoop $loop,
         protected Repository $cache,
+        protected SecretBox $secretBox,
     ) {
     }
 
@@ -50,6 +62,7 @@ class StatusController implements RequestHandlerInterface
                 'imap_library' => class_exists(ClientManager::class),
                 'webhook_secret' => $filled('webhook_secret'),
                 'mailgun_signing_key' => $filled('mailgun_signing_key'),
+                'secrets_readable' => $this->secretsReadable(),
             ],
             'polling' => [
                 'queue' => $this->loop->queueIsSync() ? 'sync' : 'async',
@@ -62,6 +75,24 @@ class StatusController implements RequestHandlerInterface
             ],
             'recent' => $this->recent(),
         ]);
+    }
+
+    /**
+     * Falso quando um segredo salvo não abre mais (arquivo de chave perdido,
+     * ou valor antigo depois de mudar a URL): o admin precisa digitá-lo de
+     * novo.
+     */
+    protected function secretsReadable(): bool
+    {
+        foreach (['secret', 'imap_password', 'mailgun_signing_key'] as $key) {
+            try {
+                $this->secretBox->decode((string) $this->settings->get('ramon-mail-reply.'.$key));
+            } catch (Throwable) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

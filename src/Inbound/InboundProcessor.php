@@ -1,15 +1,28 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Inbound;
 
 use Carbon\Carbon;
+use Flarum\Discussion\Command\ReadDiscussion;
 use Flarum\Discussion\Discussion;
 use Flarum\Foundation\DispatchEventsTrait;
+use Flarum\Foundation\ValidationException;
 use Flarum\Post\CommentPost;
 use Flarum\Post\Event\Saving;
 use Flarum\Post\Post;
 use Flarum\Settings\SettingsRepositoryInterface;
+use Flarum\User\Exception\PermissionDeniedException;
 use Flarum\User\User;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Psr\Log\LoggerInterface;
@@ -30,6 +43,8 @@ class InboundProcessor
 
     public const MAX_CONTENT_LENGTH = 63000;
 
+    public const DEFAULT_REPLIES_PER_HOUR = 20;
+
     public function __construct(
         protected TokenService $tokens,
         protected EmailParser $parser,
@@ -37,6 +52,7 @@ class InboundProcessor
         protected Dispatcher $events,
         protected LoggerInterface $logger,
         protected RejectionNotifier $notifier,
+        protected BusDispatcher $bus,
     ) {
     }
 
@@ -47,7 +63,7 @@ class InboundProcessor
     {
         $hash = self::messageHash($payload);
 
-        if (InboundEmail::query()->where('message_hash', $hash)->exists()) {
+        if ($this->alreadyRecorded($hash)) {
             throw new InboundRejected('duplicate', 'Message was already processed.', true);
         }
 
@@ -74,13 +90,41 @@ class InboundProcessor
 
                 return $post;
             });
-        } catch (UniqueConstraintViolationException) {
-            throw new InboundRejected('duplicate', 'Message was processed concurrently.', true);
+        } catch (UniqueConstraintViolationException $e) {
+            // Só é duplicata se outro worker registrou esta mensagem; uma
+            // colisão no número do post é falha transitória e precisa de nova
+            // tentativa.
+            if ($this->alreadyRecorded($hash)) {
+                throw new InboundRejected('duplicate', 'Message was processed concurrently.', true);
+            }
+
+            throw $e;
+        } catch (ValidationException|PermissionDeniedException $e) {
+            // Outra extensão (filtro de palavras, antispam) recusou o post no
+            // `Saving`: recusa definitiva, registrada como qualquer outra.
+            $rejected = new InboundRejected('validation', $e->getMessage());
+            $this->record($hash, InboundEmail::STATUS_REJECTED, $rejected->reason, $context);
+            $this->notifyRejection($rejected, $context, $payload);
+
+            throw $rejected;
         }
 
         $this->dispatchEventsFor($post, $user);
 
+        // Como o PostResource do core: quem responde leu a discussão até a
+        // própria resposta. Sem isso o flarum/subscriptions deixa de avisar
+        // dos posts seguintes.
+        $this->bus->dispatch(new ReadDiscussion($discussion->id, $user, $post->number));
+
         return $post;
+    }
+
+    /**
+     * @phpstan-impure
+     */
+    protected function alreadyRecorded(string $hash): bool
+    {
+        return InboundEmail::query()->where('message_hash', $hash)->exists();
     }
 
     /**
@@ -164,6 +208,10 @@ class InboundProcessor
             throw new InboundRejected('sender_mismatch', 'Sender address does not match the account the reply address was issued to.');
         }
 
+        if (self::dmarcFailed($headers)) {
+            throw new InboundRejected('sender_unauthenticated', 'The receiving server reported a DMARC failure for the From domain.');
+        }
+
         /** @var Discussion|null $discussion */
         $discussion = Discussion::query()->whereVisibleTo($user)->find($bind['discussion_id']);
 
@@ -232,6 +280,22 @@ class InboundProcessor
         return $content;
     }
 
+    /**
+     * O From é só um cabeçalho; quem garante o domínio é o DMARC. Vale o
+     * `Authentication-Results` do topo, que é o do servidor que recebeu a
+     * mensagem — os de baixo vêm de quem enviou e não merecem confiança. Só
+     * a falha explícita recusa: sem o cabeçalho, nada muda.
+     *
+     * @param array<string, mixed> $headers
+     */
+    public static function dmarcFailed(array $headers): bool
+    {
+        $top = (array) ($headers['authentication-results'] ?? []);
+        $first = strtolower((string) ($top[0] ?? ''));
+
+        return (bool) preg_match('/(?:^|[;\s])dmarc\s*=\s*fail\b/', substr($first, 0, 4096));
+    }
+
     protected function requiresSenderMatch(): bool
     {
         $value = $this->settings->get('ramon-mail-reply.require_sender_match');
@@ -253,7 +317,9 @@ class InboundProcessor
 
     protected function exceedsHourlyLimit(User $user): bool
     {
-        $limit = (int) ($this->settings->get('ramon-mail-reply.max_replies_per_hour') ?? 20);
+        $value = $this->settings->get('ramon-mail-reply.max_replies_per_hour');
+        // Campo apagado no admin volta ao padrão; só 0 desliga o limite.
+        $limit = is_numeric($value) ? (int) $value : self::DEFAULT_REPLIES_PER_HOUR;
 
         if ($limit <= 0 || $user->can('postWithoutThrottle')) {
             return false;

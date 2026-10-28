@@ -1,7 +1,17 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Console;
 
+use Flarum\Console\AbstractCommand;
 use Flarum\Discussion\Discussion;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
@@ -10,19 +20,18 @@ use Ramon\MailReply\Token\TokenService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
-use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * Diagnóstico ponta-a-ponta: imprime o endereço aliasado que seria gerado
- * para (usuário, tópico), faz o round-trip de parse e valida configuração.
+ * Mostra o alias gerado para (usuário, tópico), confere que ele volta
+ * intacto pelo parse e valida a configuração.
  *
  *     php flarum mail-reply:diagnose <userId> <discussionId>
- *     php flarum mail-reply:diagnose --address=ramon+u42d123-...@ramonguilherme.com.br
+ *     php flarum mail-reply:diagnose --address=inbox+u42d123-...@reply.exemplo.com
  */
 #[AsCommand(name: 'mail-reply:diagnose', description: 'Mint and parse a reply alias for a given user+discussion to verify the mail-reply setup.')]
-class DiagnoseMailReplyCommand extends Command
+class DiagnoseMailReplyCommand extends AbstractCommand
 {
     public function __construct(
         protected TokenService $tokens,
@@ -40,8 +49,10 @@ class DiagnoseMailReplyCommand extends Command
         $this->addOption('address', null, InputOption::VALUE_REQUIRED, 'Inverse mode: parse an address and report user/discussion/post.');
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output): int
+    protected function fire(): int
     {
+        [$input, $output] = [$this->input, $this->output];
+
         $address = $input->getOption('address');
 
         if ($address !== null) {

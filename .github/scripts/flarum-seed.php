@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 /**
  * Popula o Flarum de teste do performance.yml: 30 discussões com 1 post de
  * abertura + 2 respostas cada, sendo as respostas marcadas como recebidas por

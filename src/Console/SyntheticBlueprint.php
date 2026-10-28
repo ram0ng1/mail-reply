@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Console;
 
 use Flarum\Database\AbstractModel;
@@ -10,9 +19,8 @@ use Flarum\Post\CommentPost;
 use Flarum\User\User;
 
 /**
- * Blueprint sintético usado SOMENTE pelo comando mail-reply:simulate-send
- * para satisfazer o contrato de uma notificação real. Não é registrado no
- * service provider — nunca aparece no fluxo de produção.
+ * Blueprint usado apenas pelo `mail-reply:simulate-send`; não é registrado
+ * como notificação.
  */
 class SyntheticBlueprint implements BlueprintInterface, MailableInterface
 {

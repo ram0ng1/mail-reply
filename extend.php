@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply;
 
 use Flarum\Api\Endpoint;
@@ -8,7 +17,6 @@ use Flarum\Api\Resource\PostResource;
 use Flarum\Extend;
 use Flarum\Post\Post;
 use Flarum\Settings\Event\Saving;
-use Illuminate\Console\Scheduling\Event;
 use Ramon\MailReply\Api\Controller\InboundEmailController;
 use Ramon\MailReply\Api\Controller\StatusController;
 use Ramon\MailReply\Api\Controller\TestImapController;
@@ -17,6 +25,7 @@ use Ramon\MailReply\Console\DiagnoseMailReplyCommand;
 use Ramon\MailReply\Console\FetchInboundEmailCommand;
 use Ramon\MailReply\Console\PruneInboundLogCommand;
 use Ramon\MailReply\Console\ScheduleFetch;
+use Ramon\MailReply\Console\SchedulePrune;
 use Ramon\MailReply\Console\SimulateSendCommand;
 use Ramon\MailReply\Database\MailReplyPost;
 use Ramon\MailReply\Listener\EncryptSecretsOnSave;
@@ -27,11 +36,8 @@ return [
         ->post('/mail-reply/test-imap', 'mail-reply.test-imap', TestImapController::class)
         ->get('/mail-reply/status', 'mail-reply.status', StatusController::class),
 
-    /**
-     * Webhook recebe POST de MTAs/scripts pipe externos sem cookie nem
-     * CSRF token. A autenticação real é o header X-Mail-Reply-Token
-     * verificado por hash_equals no controller.
-     */
+    // O webhook é chamado por MTAs e scripts externos, sem sessão nem
+    // token CSRF; a autenticação é feita no controller.
     (new Extend\Csrf())
         ->exemptRoute('mail-reply.inbound'),
 
@@ -43,10 +49,8 @@ return [
         ->command(DiagnoseMailReplyCommand::class)
         ->command(SimulateSendCommand::class)
         ->command(PruneInboundLogCommand::class)
-        ->schedule('mail-reply:fetch', ScheduleFetch::class, ['--if-idle'])
-        ->schedule('mail-reply:prune', function (Event $event): void {
-            $event->daily();
-        }),
+        ->schedule(FetchInboundEmailCommand::class, ScheduleFetch::class, ['--if-idle'])
+        ->schedule(PruneInboundLogCommand::class, SchedulePrune::class),
 
     (new Extend\Event())
         ->listen(Saving::class, EncryptSecretsOnSave::class),
@@ -54,10 +58,7 @@ return [
     (new Extend\Model(Post::class))
         ->hasOne('mailReplyMeta', MailReplyPost::class, 'post_id'),
 
-    /**
-     * O badge lê `mailReplyMeta`; carregamos a relação em lote em todo
-     * endpoint que serializa posts para evitar uma query por post.
-     */
+    // Carrega `mailReplyMeta` em lote para o badge não custar uma query por post.
     (new Extend\ApiResource(PostResource::class))
         ->fields(ExposeViaMailReply::class)
         ->endpoint(
@@ -83,12 +84,8 @@ return [
         ->js(__DIR__.'/js/dist/forum.js')
         ->css(__DIR__.'/less/forum.less'),
 
-    /**
-     * `delivery_mode` aceita 'imap' (poller dentro do queue:work), 'webhook'
-     * (endpoint público + script PHP no MTA) ou 'disabled'. Apenas um ativo
-     * por vez — o controller e o ServiceProvider checam o valor pra decidir
-     * se aceitam POST ou se despacham o job de polling.
-     */
+    // `delivery_mode`: 'imap', 'webhook' ou 'disabled'. Só um modo fica ativo
+    // por vez, para a mesma resposta não ser entregue duas vezes.
     (new Extend\Settings())
         ->serializeToForum('mailReply.showBadge', 'ramon-mail-reply.show_badge', fn ($value) => (bool) ($value ?? true))
         ->default('ramon-mail-reply.delivery_mode', 'imap')

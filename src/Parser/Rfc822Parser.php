@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Parser;
 
 use Ramon\MailReply\Inbound\RecipientExtractor;
@@ -31,7 +40,11 @@ class Rfc822Parser
 
         [$bodyText, $bodyHtml] = $this->extractBody($headers, $body);
 
-        if (trim($bodyText) === '' && trim($bodyHtml) === '' && trim($body) !== '') {
+        // Sem parte de texto num multipart (só imagem, só PGP, só convite) o
+        // corpo cru é MIME, não resposta: fica vazio e vira `empty_body`.
+        $multipart = str_starts_with(strtolower(self::first($headers, 'content-type')), 'multipart/');
+
+        if (! $multipart && trim($bodyText) === '' && trim($bodyHtml) === '' && trim($body) !== '') {
             $bodyText = $body;
         }
 
@@ -169,12 +182,16 @@ class Rfc822Parser
         $html = '';
 
         foreach ($parts as $part) {
-            $part = ltrim($part, "\n");
-            if ($part === '' || str_starts_with($part, '--')) {
+            // Só o resto da linha do boundary sai: a linha em branco que vem
+            // logo depois marca uma parte sem cabeçalhos (text/plain).
+            $part = (string) preg_replace('/^[ \t]*\n/', '', $part, 1);
+            if (trim($part) === '' || str_starts_with($part, '--')) {
                 continue;
             }
 
-            [$partHeadersBlock, $partBody] = array_pad(explode("\n\n", $part, 2), 2, '');
+            [$partHeadersBlock, $partBody] = str_starts_with($part, "\n")
+                ? ['', substr($part, 1)]
+                : array_pad(explode("\n\n", $part, 2), 2, '');
             $partHeaders = self::parseHeaderBlock($partHeadersBlock);
             $partContentType = self::first($partHeaders, 'content-type');
             $partType = strtolower($partContentType);

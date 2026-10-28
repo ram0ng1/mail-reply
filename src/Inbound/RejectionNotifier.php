@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Inbound;
 
 use Flarum\Locale\TranslatorInterface;
@@ -22,7 +31,7 @@ class RejectionNotifier
 {
     public const NOTIFIABLE_REASONS = [
         'not_allowed', 'discussion_unavailable', 'private_discussion',
-        'rate_limited', 'empty_body', 'too_long',
+        'rate_limited', 'empty_body', 'too_long', 'validation',
     ];
 
     private const THROTTLE_SECONDS = 86400;

@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Api\Controller;
 
 use Flarum\Http\RequestUtil;
@@ -15,10 +24,8 @@ use Throwable;
 use Webklex\PHPIMAP\ClientManager;
 
 /**
- * Endpoint admin para validar a configuração IMAP antes do admin sair da
- * tela. Espelha o "Send test mail" do core (admin-only, retorna estrutura
- * JSON simples). Aceita override no body para que o admin possa testar
- * valores ainda não salvos.
+ * Testa a conexão IMAP pelo painel do admin, inclusive com valores ainda
+ * não salvos enviados no corpo da requisição.
  */
 class TestImapController implements RequestHandlerInterface
 {
@@ -97,9 +104,8 @@ class TestImapController implements RequestHandlerInterface
     }
 
     /**
-     * Sanitiza a mensagem antes de devolver: credenciais (host:porta,
-     * user:pass) às vezes aparecem em erros do webklex/php-imap. Expomos
-     * só o tipo de erro + 200 chars, sem URL nem login.
+     * Erros do webklex/php-imap às vezes trazem host, usuário ou senha;
+     * devolvemos só o tipo do erro e uma mensagem curta sem credenciais.
      *
      * @param array{username: string, password: string, host: string} $config
      */

@@ -1,0 +1,18 @@
+# Postfix + Dovecot LMTP com sub-endereçamento (+tag), como na Plesk e num
+# VPS comum. O pipe (só com root) passa por um alias local.
+compatibility_level = 3.6
+myhostname = mail.forum.test
+mydestination = localhost
+inet_interfaces = loopback-only
+inet_protocols = ipv4
+mynetworks = 127.0.0.0/8
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+recipient_delimiter = +
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+virtual_mailbox_domains = forum.test
+virtual_mailbox_maps = hash:/etc/postfix/vmailbox
+virtual_alias_maps = hash:/etc/postfix/virtual
+virtual_transport = lmtp:unix:private/dovecot-lmtp
+maillog_file = /var/log/postfix.log
+smtputf8_enable = no

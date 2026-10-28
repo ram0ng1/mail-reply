@@ -1,36 +1,23 @@
 <?php
 
+/*
+ * This file is part of ramon/mail-reply.
+ *
+ * Copyright (c) 2026 Ramon Guilherme.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Ramon\MailReply\Parser;
 
 use EmailReplyParser\EmailReplyParser as WdEmailReplyParser;
 
 /**
- * Extrai a parte "nova" de um e-mail de resposta (a mensagem real que o
- * usuário escreveu), descartando assinaturas, histórico citado e
- * artefatos MIME que tenham escapado do Rfc822Parser.
- *
- * Estratégia em fases:
- *
- *   1. `cleanupMimeArtifacts` — remove linhas que são claramente
- *      cabeçalho MIME ou boundary (`--xxx`, `Content-Type:`,
- *      `Content-Transfer-Encoding:`, etc.). Decodifica quoted-printable
- *      se for marcado. Necessário quando o parser MIME pré-falhou e
- *      jogou body cru com headers literais.
- *
- *   2. `toPlainText` — se HTML, strip de tags preservando quebras.
- *
- *   3. `truncateAtQuoteMarker` — corta no cabeçalho de quote/forward,
- *      independente do idioma. CRÍTICO rodar ANTES da willdurand, que só
- *      entende inglês e devolveria o histórico inteiro intocado.
- *
- *   4. `parseReply` (willdurand) — remove signatures + quotes. Agressivo.
- *
- *   5. Se 4 zerou tudo, `stripQuotesOnly` (leve).
- *
- *   6. Se 5 também zerou, primeiras N linhas não-vazias do texto cru.
- *
- * Sempre retorna ALGO útil — nunca string vazia se o input tinha
- * conteúdo legível.
+ * Extrai o texto novo de uma resposta, sem assinatura, histórico citado nem
+ * restos de MIME. O corte por marcador de citação roda antes do
+ * willdurand/email-reply-parser, que só reconhece o formato em inglês. Se a
+ * limpeza apagar tudo, recua para estratégias mais leves.
  */
 class EmailParser
 {
@@ -57,7 +44,7 @@ class EmailParser
         }
 
         if ($stripSignatures) {
-            $parsed = trim(WdEmailReplyParser::parseReply($text));
+            $parsed = trim($this->stripMobileSignature(WdEmailReplyParser::parseReply($text)));
             if ($parsed !== '') {
                 return $parsed;
             }
@@ -72,20 +59,9 @@ class EmailParser
     }
 
     /**
-     * Remove artefatos MIME que possam ter chegado no body bruto quando
-     * o Rfc822Parser cai no fallback de "body cru" (multipart sem
-     * boundary detectado, parser falhou em isolar a parte text/plain).
-     *
-     * O que limpa:
-     *   - Linhas `--<boundary>` (incluindo `--<boundary>--` de fechamento)
-     *   - Headers MIME no início de uma "parte": Content-Type,
-     *     Content-Transfer-Encoding, Content-Disposition, MIME-Version,
-     *     charset, etc. — apenas quando aparecem isolados no meio do
-     *     texto (não como conteúdo legítimo).
-     *   - Aplica decode de quoted-printable se detectar marker.
-     *
-     * Duas passadas porque se na primeira ficou um header MIME isolado
-     * (linha em branco intercalada), a segunda pega.
+     * Remove boundaries e cabeçalhos MIME que sobram quando o Rfc822Parser
+     * não consegue isolar a parte de texto. Duas passadas porque uma linha
+     * em branco intercalada esconde um cabeçalho da primeira.
      */
     protected function cleanupMimeArtifacts(string $body): string
     {
@@ -109,10 +85,8 @@ class EmailParser
     }
 
     /**
-     * Uma passada de remoção de linhas MIME (boundary + headers). O
-     * regex de boundary `^--\S` é permissivo de propósito — qualquer
-     * linha começando com `--` seguido de não-espaço é candidata.
-     * Continuações indentadas de header também são puladas.
+     * O padrão de boundary `^--\S` é permissivo de propósito; continuações
+     * indentadas de cabeçalho também saem.
      */
     protected function stripMimeLines(string $body): string
     {
@@ -221,50 +195,121 @@ class EmailParser
     }
 
     /**
-     * Trunca o body no primeiro marcador de quote/forward,
-     * independente do idioma do cliente de e-mail.
+     * Trunca o body no primeiro marcador de quote/forward, independente do
+     * idioma do cliente: sinais estruturais, não palavras por locale.
      *
-     * Estratégia: sinais estruturais que valem em qualquer idioma —
-     * não uma lista de palavras-chave por locale.
+     *   - "Original Message" / "Forwarded message" entre traços;
+     *   - linha de atribuição ("Em …, Fulano <x@y> escreveu:", "On … wrote:",
+     *     `2026年1月5日 … <x@y>:`): termina com `:` e tem ano de 4 dígitos com
+     *     vírgula ou hora, ou um `<email>`. O Gmail quebra a linha longa em
+     *     duas no text/plain, então a linha seguinte também é tentada;
+     *   - bloco de cabeçalho do Outlook (`De: Fulano <x@y>` seguido de
+     *     `Enviado:`, `Para:`…).
      *
-     *   - Marcador "Original Message" / "Forwarded message" (qualquer
-     *     idioma, detectado pelas linhas com dashes).
-     *   - Apple Mail / Gmail localizado: a linha do cabeçalho de quote
-     *     SEMPRE termina com `:` (ASCII ou full-width `：`), SEMPRE
-     *     contém um ano de 4 dígitos, e quase sempre tem vírgula. Vale
-     *     em PT, EN, ES, FR, DE, IT, JA, ZH, RU, etc.
-     *   - Variante sem vírgula (DE, ZH): ano + HH:MM + termina com `:`.
-     *   - Linha com `<email@host>` + termina com `:` — Outlook/Apple
-     *     "From: Foo <foo@bar> wrote:" e parentes.
-     *   - Cabeçalho Outlook colado: linha com `<word>: <stuff <email>>`
-     *     (campo nomeado seguido de endereço — From/De/Von/差出人/Da/...).
+     * Atribuição só corta quando é crível: tem um e-mail ou vem seguida de
+     * linhas citadas com `>`. Assim "Oi pessoal, os números de 2025:" no
+     * meio da resposta não apaga o resto.
      */
     protected function truncateAtQuoteMarker(string $text): string
     {
         $lines = explode("\n", $text);
+        $count = count($lines);
 
-        $patterns = [
-            '/^\s*-{2,}\s*\S[^\n]*\S\s*-{2,}\s*$/u',
-            '/^\s*>?\s*(?=.*[\d\p{N}]{4})(?=.*[,，、]).+[:：]\s*$/u',
-            '/^\s*>?\s*(?=.*[\d\p{N}]{4})(?=.*[\d\p{N}]{1,2}:[\d\p{N}]{2}).+[:：]\s*$/u',
-            '/^\s*>?\s*.*<[^@\s<>]+@[^@\s<>]+>.*[:：]\s*$/u',
-            '/^\s*\S{1,30}\s*[:：]\s+.*<[^@\s<>]+@[^@\s<>]+>/u',
-        ];
+        for ($i = 0; $i < $count; $i++) {
+            $line = $lines[$i];
 
-        foreach ($lines as $i => $line) {
-            foreach ($patterns as $p) {
-                if (@preg_match($p, $line) === 1) {
+            if (preg_match('/^\s*-{2,}\s*\S[^\n]*\S\s*-{2,}\s*$/u', $line)) {
+                return implode("\n", array_slice($lines, 0, $i));
+            }
+
+            foreach ([1, 2] as $span) {
+                if ($i + $span > $count) {
+                    break;
+                }
+
+                $candidate = implode(' ', array_map('trim', array_slice($lines, $i, $span)));
+
+                if ($this->isAttribution($candidate) && $this->isCredibleAttribution($candidate, $lines, $i + $span)) {
                     return implode("\n", array_slice($lines, 0, $i));
                 }
+            }
+
+            if (preg_match('/^\s*\S{1,30}\s*[:：]\s+.*<[^@\s<>]+@[^@\s<>]+>/u', $line) && $this->headerFollows($lines, $i + 1)) {
+                return implode("\n", array_slice($lines, 0, $i));
             }
         }
 
         return $text;
     }
 
+    protected function isAttribution(string $line): bool
+    {
+        $patterns = [
+            '/^\s*>?\s*(?=.*[\d\p{N}]{4})(?=.*[,，、]).+[:：]\s*$/u',
+            '/^\s*>?\s*(?=.*[\d\p{N}]{4})(?=.*[\d\p{N}]{1,2}:[\d\p{N}]{2}).+[:：]\s*$/u',
+            '/^\s*>?\s*.*<[^@\s<>]+@[^@\s<>]+>.*[:：]\s*$/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (@preg_match($pattern, $line) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
-     * Strip leve: para no primeiro "On … wrote:" / "Em … escreveu:" /
-     * "-----Original Message-----" e pula linhas com `>` no começo.
+     * @param array<int, string> $lines
+     */
+    protected function isCredibleAttribution(string $candidate, array $lines, int $next): bool
+    {
+        if (preg_match('/[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+/u', $candidate) || str_starts_with(ltrim($candidate), '>')) {
+            return true;
+        }
+
+        for ($j = $next, $n = count($lines); $j < $n; $j++) {
+            if (trim($lines[$j]) !== '') {
+                return str_starts_with(ltrim($lines[$j]), '>');
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Outro campo de cabeçalho (`Enviado:`, `Sent:`, `Para:`…) logo abaixo
+     * confirma o bloco colado pelo Outlook.
+     *
+     * @param array<int, string> $lines
+     */
+    protected function headerFollows(array $lines, int $from): bool
+    {
+        for ($j = $from, $n = min(count($lines), $from + 4); $j < $n; $j++) {
+            if (preg_match('/^\s*\S{1,30}\s*[:：]\s+\S/u', $lines[$j])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * "Enviado do meu iPhone" e afins no fim da resposta: o
+     * email-reply-parser só conhece a versão em inglês.
+     */
+    protected function stripMobileSignature(string $text): string
+    {
+        $pattern = '/\n\s*(sent from my .{1,40}|enviado do meu .{1,40}|enviado de meu .{1,40}|enviado desde mi .{1,40}|'
+            .'envoy[ée] de mon .{1,40}|von meinem .{1,40} gesendet|inviato da(l mio)? .{1,40}|'
+            .'(get|obter o|baixe o) outlook (for|para) (ios|android))\s*$/iu';
+
+        return rtrim((string) preg_replace($pattern, '', "\n".$text), "\n");
+    }
+
+    /**
+     * Limpeza leve: corta na primeira linha de atribuição ou
+     * "Original Message" e descarta linhas citadas com `>`.
      */
     protected function stripQuotesOnly(string $text): string
     {
@@ -287,8 +332,7 @@ class EmailParser
     }
 
     /**
-     * Pega as primeiras N linhas não-vazias do texto. Usado como último
-     * fallback quando o parser/strip zera tudo.
+     * Último recurso quando as outras limpezas apagam tudo.
      */
     protected function firstNonEmptyLines(string $text, int $maxLines): string
     {

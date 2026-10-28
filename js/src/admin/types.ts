@@ -30,6 +30,7 @@ export interface MailReplyStatus {
     imap_library: boolean;
     webhook_secret: boolean;
     mailgun_signing_key: boolean;
+    secrets_readable: boolean;
   };
   polling: {
     queue: 'sync' | 'async';
@@ -50,6 +51,7 @@ export function missingFor(status: MailReplyStatus): string[] {
 
   const missing: string[] = [];
   if (!configured.reply_address) missing.push('reply_address');
+  if (configured.secrets_readable === false) missing.push('secrets');
 
   if (mode === 'imap') {
     if (!configured.imap_library) missing.push('imap_library');

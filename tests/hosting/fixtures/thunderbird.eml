@@ -1,0 +1,22 @@
+Message-ID: <{{MESSAGE_ID}}>
+Date: {{DATE}}
+MIME-Version: 1.0
+User-Agent: Mozilla Thunderbird
+Subject: Re: [Forum] {{TITLE}}
+Content-Language: pt-BR
+To: {{TO}}
+References: <notification@forum.test>
+From: Alice Souza <{{FROM}}>
+Content-Type: text/plain; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: 8bit
+
+Thunderbird também funciona.
+Segunda linha da resposta.
+
+Em 28/10/2026 15:00, Fórum escreveu:
+> Bob respondeu na discussão.
+>
+> Teste a resposta por e-mail.
+
+-- 
+Alice
