@@ -138,4 +138,7 @@ cp "$OUT/result.md" "$RESULTS/$HOSTING-$DELIVERY.md"
 mkdir -p "$RESULTS/logs/$HOSTING-$DELIVERY"
 cp "$FORUM_DIR"/storage/logs/*.log "$RESULTS/logs/$HOSTING-$DELIVERY/" 2>/dev/null || true
 as_root sh -c "cp /var/log/exim4/mainlog /var/log/postfix.log /var/log/dovecot.log '$RESULTS/logs/$HOSTING-$DELIVERY/' 2>/dev/null" || true
+# Os logs do MTA são do root: o upload do artefato precisa lê-los.
+as_root chown -R "$(id -u):$(id -g)" "$RESULTS/logs" 2>/dev/null || true
+chmod -R u+rwX,go+rX "$RESULTS/logs" 2>/dev/null || true
 exit "$status"

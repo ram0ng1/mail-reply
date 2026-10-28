@@ -39,7 +39,8 @@ $site = require getcwd().'/site.php';
 $app = $site->bootApp();
 $container = $app->getContainer();
 
-const WEBHOOK_SECRET = 'a3f1c9e07b5d4e2a8c6f0b1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f60718293a4b5';
+// Valores só de teste, para o fórum descartável da matriz.
+const WEBHOOK_SECRET = 'segredo-de-teste-da-matriz-de-hospedagem';
 const MAILGUN_KEY = 'key-mailgun-signing-test';
 const IMAP_PASSWORD = 'imap-secret';
 

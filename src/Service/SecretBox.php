@@ -153,7 +153,7 @@ class SecretBox
             }
         }
 
-        $hex = is_file($path) ? trim((string) @file_get_contents($path)) : '';
+        $hex = is_file($path) ? trim((string) @file_get_contents($path)) : ''; /* caminho fixo em storage, não é URL; nosemgrep: flarum-v2-server-side-fetch */
 
         if (strlen($hex) !== 2 * SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES || ! ctype_xdigit($hex)) {
             return null;
