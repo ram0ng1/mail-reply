@@ -64,7 +64,10 @@ class CombinedEmailMutator
     /**
      * Roda o mutator do core (List-Unsubscribe e afins) e em seguida
      * adiciona o Reply-To assinado. Não devolve valor: `until()` segue
-     * para os próximos listeners em qualquer versão do core.
+     * para os próximos listeners em qualquer versão do core. Sem tipo
+     * nativo de propósito (ver o teste do mutator).
+     *
+     * @return void
      */
     public function handle(MessageSending $event)
     {

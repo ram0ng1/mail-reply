@@ -11,6 +11,7 @@
 
 namespace Ramon\MailReply\Console;
 
+use Flarum\Console\AbstractCommand;
 use Flarum\Discussion\Discussion;
 use Flarum\Post\CommentPost;
 use Flarum\Settings\SettingsRepositoryInterface;
@@ -21,8 +22,6 @@ use Ramon\MailReply\Mail\ReplyAddressConfig;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
-use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 
@@ -38,7 +37,7 @@ use Symfony\Component\Mime\Email;
  *     php flarum mail-reply:simulate-send <userId> <discussionId>
  */
 #[AsCommand(name: 'mail-reply:simulate-send', description: 'Synthesize a notification email and dispatch MessageSending to verify Reply-To injection end-to-end.')]
-class SimulateSendCommand extends Command
+class SimulateSendCommand extends AbstractCommand
 {
     public function __construct(
         protected Dispatcher $events,
@@ -61,8 +60,10 @@ class SimulateSendCommand extends Command
      * ativo: sem o rebind, o MutateEmail original do core resolveria e
      * não adicionaria Reply-To, mesmo com nosso código deployado.
      */
-    protected function execute(InputInterface $input, OutputInterface $output): int
+    protected function fire(): int
     {
+        [$input, $output] = [$this->input, $this->output];
+
         $userId = (int) $input->getArgument('user');
         $discussionId = (int) $input->getArgument('discussion');
 

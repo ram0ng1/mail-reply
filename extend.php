@@ -17,7 +17,6 @@ use Flarum\Api\Resource\PostResource;
 use Flarum\Extend;
 use Flarum\Post\Post;
 use Flarum\Settings\Event\Saving;
-use Illuminate\Console\Scheduling\Event;
 use Ramon\MailReply\Api\Controller\InboundEmailController;
 use Ramon\MailReply\Api\Controller\StatusController;
 use Ramon\MailReply\Api\Controller\TestImapController;
@@ -26,6 +25,7 @@ use Ramon\MailReply\Console\DiagnoseMailReplyCommand;
 use Ramon\MailReply\Console\FetchInboundEmailCommand;
 use Ramon\MailReply\Console\PruneInboundLogCommand;
 use Ramon\MailReply\Console\ScheduleFetch;
+use Ramon\MailReply\Console\SchedulePrune;
 use Ramon\MailReply\Console\SimulateSendCommand;
 use Ramon\MailReply\Database\MailReplyPost;
 use Ramon\MailReply\Listener\EncryptSecretsOnSave;
@@ -52,10 +52,8 @@ return [
         ->command(DiagnoseMailReplyCommand::class)
         ->command(SimulateSendCommand::class)
         ->command(PruneInboundLogCommand::class)
-        ->schedule('mail-reply:fetch', ScheduleFetch::class, ['--if-idle'])
-        ->schedule('mail-reply:prune', function (Event $event): void {
-            $event->daily();
-        }),
+        ->schedule(FetchInboundEmailCommand::class, ScheduleFetch::class, ['--if-idle'])
+        ->schedule(PruneInboundLogCommand::class, SchedulePrune::class),
 
     (new Extend\Event())
         ->listen(Saving::class, EncryptSecretsOnSave::class),

@@ -13,6 +13,7 @@ namespace Ramon\MailReply\Database;
 
 use Flarum\Database\AbstractModel;
 use Flarum\Post\Post;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Companion 1:1 do `posts` — extensão jamais ALTERa tabela do core. A
@@ -31,7 +32,10 @@ class MailReplyPost extends AbstractModel
     public $timestamps = false;
     protected $casts = ['post_id' => 'int'];
 
-    public function post()
+    /**
+     * @return BelongsTo<Post, $this>
+     */
+    public function post(): BelongsTo
     {
         return $this->belongsTo(Post::class, 'post_id');
     }

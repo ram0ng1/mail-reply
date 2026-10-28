@@ -11,12 +11,12 @@
 
 namespace Ramon\MailReply\Console;
 
+use Flarum\Console\AbstractCommand;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Ramon\MailReply\Inbound\FetchLoop;
 use Ramon\MailReply\Inbound\ImapFetcher;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
@@ -31,7 +31,7 @@ use Throwable;
  *     php flarum mail-reply:fetch --loop --interval=60
  */
 #[AsCommand(name: 'mail-reply:fetch', description: 'Fetch unseen replies from the configured IMAP inbox and post them to Flarum.')]
-class FetchInboundEmailCommand extends Command
+class FetchInboundEmailCommand extends AbstractCommand
 {
     public function __construct(
         protected ImapFetcher $fetcher,
@@ -55,8 +55,10 @@ class FetchInboundEmailCommand extends Command
      * lado a lado com queue:work quando o operador não pode/quer configurar
      * cron. Falhas individuais não derrubam o loop.
      */
-    protected function execute(InputInterface $input, OutputInterface $output): int
+    protected function fire(): int
     {
+        [$input, $output] = [$this->input, $this->output];
+
         if ($input->getOption('if-idle') && $this->loop->isAlive()) {
             return Command::SUCCESS;
         }
@@ -72,7 +74,7 @@ class FetchInboundEmailCommand extends Command
 
         $output->writeln(sprintf('<info>mail-reply:fetch — loop mode, interval=%ds</info>', $interval));
 
-        while (true) {
+        do {
             try {
                 $this->runOnce($output, $limit, $verbose);
             } catch (Throwable $e) {
@@ -80,7 +82,17 @@ class FetchInboundEmailCommand extends Command
             }
 
             sleep($interval);
-        }
+        } while ($this->keepLooping());
+
+        return Command::SUCCESS;
+    }
+
+    /**
+     * O `--loop` só termina quando o supervisor mata o processo.
+     */
+    protected function keepLooping(): bool
+    {
+        return ! connection_aborted();
     }
 
     /**

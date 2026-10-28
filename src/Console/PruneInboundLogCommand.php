@@ -12,12 +12,11 @@
 namespace Ramon\MailReply\Console;
 
 use Carbon\Carbon;
+use Flarum\Console\AbstractCommand;
 use Ramon\MailReply\Database\InboundEmail;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Remove registros antigos de `mail_reply_inbound`. Depois de 90 dias
@@ -25,7 +24,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * para dedupe. Agendado diariamente.
  */
 #[AsCommand(name: 'mail-reply:prune', description: 'Delete inbound email log entries older than the retention window.')]
-class PruneInboundLogCommand extends Command
+class PruneInboundLogCommand extends AbstractCommand
 {
     public const DEFAULT_DAYS = 90;
 
@@ -34,8 +33,10 @@ class PruneInboundLogCommand extends Command
         $this->addOption('days', null, InputOption::VALUE_REQUIRED, 'Retention window in days.', (string) self::DEFAULT_DAYS);
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output): int
+    protected function fire(): int
     {
+        [$input, $output] = [$this->input, $this->output];
+
         $days = max(1, (int) $input->getOption('days'));
 
         $deleted = InboundEmail::query()
