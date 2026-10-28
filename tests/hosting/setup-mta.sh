@@ -127,7 +127,7 @@ case "$MTA" in
     as_root mkdir -p /var/log/exim4 /var/spool/exim4
     as_root chown -R Debian-exim:Debian-exim /var/log/exim4 /var/spool/exim4
     as_root exim4 -bV >/dev/null
-    as_root pkill -x exim4 2>/dev/null || true
+    stop_daemon exim4
     as_root exim4 -bd -q15s
     ;;
   postfix)
@@ -149,12 +149,14 @@ case "$MTA" in
     # chown vem depois do newaliases.
     if [ "$DELIVERY" = pipe ]; then as_root chown "$ACCOUNT_USER" /etc/aliases /etc/aliases.db; fi
     as_root postfix check
+    if command -v systemctl >/dev/null 2>&1; then as_root systemctl stop postfix >/dev/null 2>&1 || true; fi
     as_root postfix stop >/dev/null 2>&1 || true
     as_root postfix start
     ;;
 esac
 
-as_root pkill -x dovecot 2>/dev/null || true
+stop_daemon dovecot
+as_root rm -f /run/dovecot/master.pid
 as_root dovecot
 
 wait_port 25

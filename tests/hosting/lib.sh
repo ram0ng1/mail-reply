@@ -24,3 +24,16 @@ wait_port() {
 fphp() {
   PHP_INI_SCAN_DIR=":$FORUM_DIR/.hosting-ini" php "$@"
 }
+
+# Para um serviço que o apt pode ter subido pelo systemd (runner do GitHub)
+# e espera o processo sair; sem isso o novo daemon acha o antigo ainda vivo.
+stop_daemon() {
+  local name="$1"
+  if command -v systemctl >/dev/null 2>&1; then as_root systemctl stop "$name" >/dev/null 2>&1 || true; fi
+  as_root pkill -x "$name" 2>/dev/null || true
+  for _ in $(seq 1 40); do
+    pgrep -x "$name" >/dev/null 2>&1 || return 0
+    sleep 0.25
+  done
+  as_root pkill -9 -x "$name" 2>/dev/null || true
+}
