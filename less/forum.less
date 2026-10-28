@@ -25,8 +25,21 @@
   }
 }
 
-// O Canela ordena o cabeçalho do post com `order` (nome em 1, data em 5):
-// o selo fica à frente do nome, colado nele.
-.CanelaTopic .Post .Post-header .item-mailReplyBadge {
-  order: 0;
+// O Canela ordena o cabeçalho do post com `order` (nome em 1, data em 5) e
+// itens sem ordem caem antes do nome: o selo vai logo depois dos nomes, como
+// o título do usuário do próprio tema, e empurra a data para a direita.
+.CanelaTopic .Post .Post-header {
+  .item-mailReplyBadge {
+    order: 2;
+    margin-right: auto;
+  }
+
+  .item-mailReplyBadge:has(~ li.item-canelaUserTitle) {
+    margin-right: 0;
+  }
+
+  > ul > li.item-user:has(~ li.item-mailReplyBadge),
+  > ul > li.item-canelaNames:has(~ li.item-mailReplyBadge) {
+    margin-right: 0;
+  }
 }
